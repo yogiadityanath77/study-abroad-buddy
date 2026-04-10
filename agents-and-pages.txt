@@ -1,0 +1,105 @@
+## PAGES
+
+P-01 Landing (public, no auth)
+- Hero: app name, tagline, two CTA buttons (Register, Login)
+- Features section: 3 cards — visa help, health guide, culture guide
+- Static, no API calls
+
+P-02 Login (public)
+- Fields: email, password
+- POST /api/auth/login → store JWT in localStorage → redirect to /dashboard
+- Show error on wrong credentials
+
+P-03 Register (public)
+- Fields: name, email, password, confirm password
+- POST /api/auth/register → store JWT → redirect to /onboarding
+
+P-04 Onboarding wizard (protected, one-time)
+- Step 1: home country dropdown
+- Step 2: destination country + city dropdowns
+- Step 3: university name (text), travel start date, travel end date
+- Progress bar at top
+- PATCH /api/user/profile + set onboardingComplete: true → redirect /dashboard
+- If onboardingComplete is already true, redirect to /dashboard immediately
+
+P-05 Dashboard (protected)
+- Welcome card: "Hey [name], you're heading to [destination] on [date]"
+- Checklist progress bar (% of items ticked)
+- 4 module nav cards: Visa, Health, Culture, Housing
+- Quick-access button to AI Chat
+- Sidebar navbar
+
+P-06 Visa guide (protected)
+- Auto-loads for user's homeCountry + destinationCountry
+- Sections: visa type, required documents checklist, processing time, embassy link
+- GET /api/guide/visa → calls visa agent → cached in MongoDB
+
+P-07 Culture guide (protected)
+- Sections (accordion): social norms, tipping, transport, food, SIM cards
+- GET /api/guide/culture → calls culture agent → cached
+
+P-08 Health guide (protected)
+- Sections: vaccines checklist, food/water safety, insurance tips, emergency contacts
+- GET /api/guide/health → calls health agent → cached
+
+P-09 Housing guide (protected)
+- Sections: accommodation types, rent ranges, search platforms (Uniplaces etc.), lease tips
+- GET /api/guide/housing → calls housing agent → cached
+
+P-10 AI Chat (protected)
+- Scrollable message list, input box, send button
+- User bubble (right), bot bubble (left)
+- Each bot bubble shows agent badge below it (e.g. "Visa agent")
+- Typing indicator (3 dots) while waiting for response
+- GET /api/chat/history on load (last 30 messages)
+- POST /api/chat/message on send
+
+P-11 Profile + settings (protected)
+- Pre-filled form: destination country, city, university, dates
+- PATCH /api/user/profile on save → show success toast
+- Password change section (requires current password)
+
+---
+
+## AGENTS
+
+### Intent classifier
+- Model: gpt-4o-mini
+- Temperature: 0, max_tokens: 20
+- Returns: { "intent": "visa"|"health"|"culture"|"housing"|"general" }
+- Fallback: "general" if parse fails
+- File: server/router/intentClassifier.js
+
+### Agent router
+- Calls intentClassifier → picks agent from AGENT_MAP → calls agent.run()
+- Returns { answer, intent }
+- Saves both to ChatHistory in MongoDB
+- File: server/router/agentRouter.js
+
+### Visa agent (RAG)
+- ChromaDB collection: "visa_docs"
+- System prompt context: homeCountry + destinationCountry
+- Retrieves top 4 chunks → GPT-4o → returns answer
+- File: server/agents/visaAgent.js
+
+### Health agent (RAG)
+- ChromaDB collection: "health_docs"
+- System prompt context: destinationCountry + travelStartDate
+- Always appends: "Consult a doctor before travelling."
+- File: server/agents/healthAgent.js
+
+### Culture agent (RAG)
+- ChromaDB collection: "culture_docs"
+- System prompt context: destinationCountry
+- File: server/agents/cultureAgent.js
+
+### Housing agent (LLM only)
+- No ChromaDB
+- System prompt context: destinationCity + destinationCountry + trip duration
+- File: server/agents/housingAgent.js
+
+### General agent (LLM only)
+- No ChromaDB
+- Receives last 5 ChatHistory messages as conversation context
+- Handles packing, budgets, language, logistics, emotions
+- File: server/agents/generalAgent.js

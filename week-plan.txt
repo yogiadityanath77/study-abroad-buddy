@@ -1,0 +1,36 @@
+## 4-WEEK BUILD PLAN
+
+### WEEK 1 — Foundation (no AI)
+Day 1-2: Repo setup, folder structure, MongoDB connection, .env files
+Day 3-4: User model, ChatHistory model, auth routes (register/login), JWT middleware
+Day 5-7: React scaffold, React Router (all 10 routes), ProtectedRoute component, Axios instance, AuthContext, Tailwind + shared components
+
+Deliverables: MERN skeleton running, auth working, all 10 routes set up as placeholders
+
+### WEEK 2 — All pages built (no AI)
+Day 1: Landing, Login, Register pages
+Day 2: Onboarding wizard (3 steps, saves to DB)
+Day 3: Dashboard (loads real user data)
+Day 4: Visa, Culture, Health, Housing guide pages (hardcoded content for now)
+Day 5: Profile page, AI Chat shell (placeholder bot response)
+Day 6-7: All backend routes — GET/PATCH /api/user/profile, PATCH /api/user/checklist, GET/POST /api/chat
+
+Deliverables: All pages navigable, onboarding saves to DB, chat UI renders messages
+
+### WEEK 3 — RAG pipeline + agents
+Day 1: ChromaDB setup, chromaClient.js, embedder.js, 3 collections created
+Day 2: Collect source docs (embassy pages, WHO, Wikivoyage), write ingest.js, run ingestion
+Day 3: ragQuery.js helper, visaAgent.js, healthAgent.js, cultureAgent.js
+Day 4: housingAgent.js, generalAgent.js, intentClassifier.js, agentRouter.js
+Day 5-7: Test all agents in isolation via scripts, tune prompts, test classifier on 20 queries
+
+Deliverables: All 5 agents working, ChromaDB populated, classifier routing correctly
+
+### WEEK 4 — Wire AI + polish + deploy
+Day 1-2: Connect POST /api/chat/message to agentRouter, agent badge in chat UI, typing indicator
+Day 3: Module pages powered by AI (GET /api/guide/:type), guide cache in MongoDB
+Day 4: AI-generated checklist on dashboard
+Day 5: Error handling, input validation across all routes and forms
+Day 6-7: UI polish, mobile responsive, deploy (Vercel + Render + MongoDB Atlas)
+
+Deliverables: Full working app, deployed, demo-ready

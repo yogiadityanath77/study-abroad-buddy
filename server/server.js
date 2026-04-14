@@ -1,4 +1,8 @@
 // server/server.js
+
+// Load .env variables before anything else
+require('dotenv').config(); // ← must be the very first line
+
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
@@ -7,8 +11,9 @@ const authRoutes = require('./routes/authRoutes'); // ADD THIS 1
 const userRoutes = require('./routes/userRoutes'); // ADD THIS 2
 const chatRoutes = require('./routes/chatRoutes'); // ADD THIS 3
 const guideRoutes = require('./routes/guideRoutes'); // ADD THIS 4
-// Load .env variables before anything else
-dotenv.config();
+
+// Ensure GuideCache model is registered with Mongoose on startup.
+require('./models/GuideCache');
 
 // Connect to MongoDB
 connectDB();

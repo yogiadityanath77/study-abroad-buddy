@@ -1,7 +1,5 @@
-// server/models/User.js
 const mongoose = require('mongoose');
 
-// Defines the shape of every user document in MongoDB
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -48,13 +46,30 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // The ticked items — array of item strings the user has checked off.
     checklist: {
+      type: [String],
+      default: [],
+    },
+    // The AI-generated full list of checklist items.
+    // Populated once on first dashboard load, regenerated if profile changes.
+    checklistItems: {
+      type: [String],
+      default: [],
+    },
+    // Ticked visa documents — persisted so they survive page refresh.
+    tickedDocs: {
+      type: [String],
+      default: [],
+    },
+    // Ticked vaccine items — persisted so they survive page refresh.
+    tickedVaccines: {
       type: [String],
       default: [],
     },
   },
   {
-    timestamps: true, // adds createdAt and updatedAt automatically
+    timestamps: true,
   }
 );
 

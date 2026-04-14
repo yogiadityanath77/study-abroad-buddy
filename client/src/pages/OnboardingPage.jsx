@@ -1,13 +1,13 @@
 // client/src/pages/OnboardingPage.jsx
 // P-04: Protected, one-time onboarding wizard — 3 steps → PATCH /api/user/profile → redirect /dashboard
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { updateProfile } from '../api/user';
 import { useAuth } from '../context/AuthContext';
 
-// ── Country list — covers the most common study abroad destinations and origins ──
-const COUNTRIES = [
+// ── Home countries — full list, students come from anywhere ──
+const HOME_COUNTRIES = [
   'Australia', 'Austria', 'Belgium', 'Brazil', 'Canada', 'China', 'Colombia',
   'Czech Republic', 'Denmark', 'Finland', 'France', 'Germany', 'Greece',
   'Hungary', 'India', 'Indonesia', 'Ireland', 'Italy', 'Japan', 'Malaysia',
@@ -17,51 +17,35 @@ const COUNTRIES = [
   'United Kingdom', 'United States', 'Vietnam',
 ];
 
-// ── City list keyed by country — add more as needed ──
+// ── Destination countries — only the 8 covered by our RAG data ──
+const DESTINATION_COUNTRIES = [
+  'Australia',
+  'Canada',
+  'France',
+  'Germany',
+  'Ireland',
+  'Netherlands',
+  'United Kingdom',
+  'United States',
+];
+
+// ── Cities keyed by destination country only ──
 const CITIES_BY_COUNTRY = {
   Australia: ['Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Adelaide'],
-  Austria: ['Vienna', 'Graz', 'Innsbruck', 'Salzburg'],
-  Belgium: ['Brussels', 'Ghent', 'Leuven', 'Liège'],
-  Brazil: ['São Paulo', 'Rio de Janeiro', 'Brasília', 'Belo Horizonte'],
   Canada: ['Toronto', 'Vancouver', 'Montreal', 'Ottawa', 'Calgary'],
-  China: ['Beijing', 'Shanghai', 'Guangzhou', 'Shenzhen', 'Chengdu'],
-  Colombia: ['Bogotá', 'Medellín', 'Cali'],
-  'Czech Republic': ['Prague', 'Brno', 'Ostrava'],
-  Denmark: ['Copenhagen', 'Aarhus', 'Odense'],
-  Finland: ['Helsinki', 'Tampere', 'Turku', 'Oulu'],
   France: ['Paris', 'Lyon', 'Marseille', 'Toulouse', 'Bordeaux', 'Strasbourg'],
   Germany: ['Berlin', 'Munich', 'Hamburg', 'Frankfurt', 'Cologne', 'Stuttgart', 'Heidelberg'],
-  Greece: ['Athens', 'Thessaloniki'],
-  Hungary: ['Budapest', 'Debrecen', 'Pécs'],
-  India: ['Mumbai', 'Delhi', 'Bangalore', 'Hyderabad', 'Chennai', 'Pune'],
-  Indonesia: ['Jakarta', 'Bali', 'Bandung', 'Yogyakarta'],
   Ireland: ['Dublin', 'Cork', 'Galway', 'Limerick'],
-  Italy: ['Rome', 'Milan', 'Florence', 'Bologna', 'Turin', 'Naples'],
-  Japan: ['Tokyo', 'Osaka', 'Kyoto', 'Nagoya', 'Fukuoka', 'Sapporo'],
-  Malaysia: ['Kuala Lumpur', 'Penang', 'Johor Bahru'],
-  Mexico: ['Mexico City', 'Guadalajara', 'Monterrey'],
   Netherlands: ['Amsterdam', 'Rotterdam', 'The Hague', 'Utrecht', 'Eindhoven', 'Delft'],
-  'New Zealand': ['Auckland', 'Wellington', 'Christchurch'],
-  Nigeria: ['Lagos', 'Abuja', 'Ibadan'],
-  Norway: ['Oslo', 'Bergen', 'Trondheim'],
-  Pakistan: ['Karachi', 'Lahore', 'Islamabad'],
-  Philippines: ['Manila', 'Cebu City', 'Davao'],
-  Poland: ['Warsaw', 'Kraków', 'Wrocław', 'Poznań'],
-  Portugal: ['Lisbon', 'Porto', 'Coimbra', 'Braga'],
-  'Saudi Arabia': ['Riyadh', 'Jeddah', 'Dammam'],
-  Singapore: ['Singapore'],
-  'South Korea': ['Seoul', 'Busan', 'Daegu', 'Incheon'],
-  Spain: ['Madrid', 'Barcelona', 'Valencia', 'Seville', 'Granada', 'Bilbao'],
-  Sweden: ['Stockholm', 'Gothenburg', 'Malmö', 'Uppsala'],
-  Switzerland: ['Zurich', 'Geneva', 'Basel', 'Lausanne', 'Bern'],
-  Thailand: ['Bangkok', 'Chiang Mai', 'Phuket'],
-  Turkey: ['Istanbul', 'Ankara', 'Izmir'],
-  UAE: ['Dubai', 'Abu Dhabi', 'Sharjah'],
-  Ukraine: ['Kyiv', 'Lviv', 'Kharkiv'],
   'United Kingdom': ['London', 'Edinburgh', 'Manchester', 'Birmingham', 'Bristol', 'Leeds', 'Glasgow'],
   'United States': ['New York', 'Los Angeles', 'Chicago', 'Boston', 'San Francisco', 'Seattle', 'Austin'],
-  Vietnam: ['Hanoi', 'Ho Chi Minh City', 'Da Nang'],
 };
+
+// ── Month names for the date dropdowns ──
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 
 const TOTAL_STEPS = 3;
 
@@ -82,19 +66,24 @@ const OnboardingPage = () => {
   const [serverError, setServerError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Updates a single field and clears its error
+  // Updates a single field and clears its error.
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
       [name]: value,
-      // Reset city when destination country changes
       ...(name === 'destinationCountry' ? { destinationCity: '' } : {}),
     }));
     setErrors((prev) => ({ ...prev, [name]: '' }));
   };
 
-  // Validates only the fields relevant to the current step
+  // Receives a yyyy-MM-dd string from ThreePartDateField and updates formData.
+  const handleDateChange = (name, value) => {
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    setErrors((prev) => ({ ...prev, [name]: '' }));
+  };
+
+  // Validates only the fields relevant to the current step.
   const validateStep = (currentStep) => {
     const e = {};
     if (currentStep === 1) {
@@ -106,17 +95,16 @@ const OnboardingPage = () => {
     }
     if (currentStep === 3) {
       if (!formData.university.trim()) e.university = 'Please enter your university name.';
-      if (!formData.travelStartDate) e.travelStartDate = 'Please select a start date.';
-      if (!formData.travelEndDate) e.travelEndDate = 'Please select an end date.';
+      if (!formData.travelStartDate) e.travelStartDate = 'Please select a departure date.';
+      if (!formData.travelEndDate) e.travelEndDate = 'Please select a return date.';
       if (formData.travelStartDate && formData.travelEndDate &&
-          formData.travelStartDate >= formData.travelEndDate) {
-        e.travelEndDate = 'End date must be after start date.';
+          new Date(formData.travelEndDate) <= new Date(formData.travelStartDate)) {
+        e.travelEndDate = 'Return date must be after departure date.';
       }
     }
     return e;
   };
 
-  // Validates current step — advances if valid, stops if not
   const handleNext = () => {
     const stepErrors = validateStep(step);
     if (Object.keys(stepErrors).length > 0) {
@@ -127,14 +115,12 @@ const OnboardingPage = () => {
     setStep((prev) => prev + 1);
   };
 
-  // Saves all profile fields + sets onboardingComplete: true → redirects to /dashboard
   const handleSubmit = async () => {
     const stepErrors = validateStep(3);
     if (Object.keys(stepErrors).length > 0) {
       setErrors(stepErrors);
       return;
     }
-
     setLoading(true);
     setServerError('');
     try {
@@ -143,17 +129,11 @@ const OnboardingPage = () => {
         university: formData.university.trim(),
         onboardingComplete: true,
       });
-      // Sync AuthContext so ProtectedRoute sees onboardingComplete: true
       const token = localStorage.getItem('token');
-      login(token, {
-        ...user,
-        ...updated,
-        onboardingComplete: true,
-      });
+      login(token, { ...user, ...updated, onboardingComplete: true });
       navigate('/dashboard');
     } catch (err) {
-      const msg = err.response?.data?.message || 'Something went wrong. Please try again.';
-      setServerError(msg);
+      setServerError(err.message);
     } finally {
       setLoading(false);
     }
@@ -165,7 +145,6 @@ const OnboardingPage = () => {
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-6 py-12">
 
-      {/* Logo */}
       <span className="text-amber-400 font-bold tracking-widest text-sm uppercase mb-10">
         Study Abroad Buddy
       </span>
@@ -186,7 +165,6 @@ const OnboardingPage = () => {
               style={{ width: `${progressPercent}%` }}
             />
           </div>
-          {/* Step dots */}
           <div className="flex justify-between mt-3">
             {[1, 2, 3].map((s) => (
               <div key={s} className="flex flex-col items-center gap-1">
@@ -210,7 +188,6 @@ const OnboardingPage = () => {
         {/* ── Card ──────────────────────────────────────────── */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8">
 
-          {/* Server error */}
           {serverError && (
             <div className="mb-5 bg-red-500/10 border border-red-500/30 text-red-400 text-sm px-4 py-3 rounded-lg">
               {serverError}
@@ -231,7 +208,7 @@ const OnboardingPage = () => {
                 name="homeCountry"
                 value={formData.homeCountry}
                 onChange={handleChange}
-                options={COUNTRIES}
+                options={HOME_COUNTRIES}
                 placeholder="Select your country"
                 error={errors.homeCountry}
               />
@@ -252,10 +229,16 @@ const OnboardingPage = () => {
                 name="destinationCountry"
                 value={formData.destinationCountry}
                 onChange={handleChange}
-                options={COUNTRIES}
+                options={DESTINATION_COUNTRIES}
                 placeholder="Select a country"
                 error={errors.destinationCountry}
               />
+              {/* Helper note explaining the limited list */}
+              {!formData.destinationCountry && (
+                <p className="text-slate-600 text-xs -mt-2">
+                  Currently supporting 8 top study destinations.
+                </p>
+              )}
               <SelectField
                 id="destinationCity"
                 label="City"
@@ -302,26 +285,24 @@ const OnboardingPage = () => {
                 )}
               </div>
 
-              {/* Dates row */}
-              <div className="grid grid-cols-2 gap-3">
-                <DateField
-                  id="travelStartDate"
-                  label="Start date"
-                  name="travelStartDate"
-                  value={formData.travelStartDate}
-                  onChange={handleChange}
-                  error={errors.travelStartDate}
-                />
-                <DateField
-                  id="travelEndDate"
-                  label="End date"
-                  name="travelEndDate"
-                  value={formData.travelEndDate}
-                  onChange={handleChange}
-                  error={errors.travelEndDate}
-                  min={formData.travelStartDate || undefined}
-                />
-              </div>
+              {/* Departure date */}
+              <ThreePartDateField
+                label="Departure date"
+                name="travelStartDate"
+                value={formData.travelStartDate}
+                onChange={handleDateChange}
+                error={errors.travelStartDate}
+              />
+
+              {/* Return date */}
+              <ThreePartDateField
+                label="Return date"
+                name="travelEndDate"
+                value={formData.travelEndDate}
+                onChange={handleDateChange}
+                error={errors.travelEndDate}
+              />
+
             </div>
           )}
 
@@ -332,7 +313,7 @@ const OnboardingPage = () => {
                 onClick={() => setStep((prev) => prev - 1)}
                 className="flex-1 border border-slate-700 text-slate-300 font-semibold py-3 rounded-xl text-sm hover:border-slate-500 hover:text-white transition-colors"
               >
-                ← Back
+                {'← Back'}
               </button>
             )}
             {step < TOTAL_STEPS ? (
@@ -340,7 +321,7 @@ const OnboardingPage = () => {
                 onClick={handleNext}
                 className="flex-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold py-3 rounded-xl text-sm transition-colors shadow-lg shadow-amber-400/20"
               >
-                Next →
+                {'Next →'}
               </button>
             ) : (
               <button
@@ -361,7 +342,6 @@ const OnboardingPage = () => {
 
 // ── Sub-components ────────────────────────────────────────────
 
-// Step heading with emoji, title, and subtitle
 const StepHeading = ({ emoji, title, subtitle }) => (
   <div className="mb-6">
     <span className="text-3xl">{emoji}</span>
@@ -370,7 +350,6 @@ const StepHeading = ({ emoji, title, subtitle }) => (
   </div>
 );
 
-// Labelled select with placeholder + error state
 const SelectField = ({ id, label, name, value, onChange, options, placeholder, error, disabled }) => (
   <div>
     <label htmlFor={id} className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5">
@@ -399,27 +378,105 @@ const SelectField = ({ id, label, name, value, onChange, options, placeholder, e
   </div>
 );
 
-// Date input with label + error state
-const DateField = ({ id, label, name, value, onChange, error, min }) => (
-  <div>
-    <label htmlFor={id} className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5">
-      {label}
-    </label>
-    <input
-      id={id}
-      name={name}
-      type="date"
-      value={value}
-      onChange={onChange}
-      min={min}
-      className={`w-full bg-slate-950 border text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 transition-colors ${
-        error
-          ? 'border-red-500/60 focus:border-red-400 focus:ring-red-400'
-          : 'border-slate-700 focus:border-amber-400 focus:ring-amber-400'
-      }`}
-    />
-    {error && <p className="mt-1.5 text-red-400 text-xs">{error}</p>}
-  </div>
-);
+// Three-part date selector — Day / Month / Year dropdowns in DD/MM/YYYY order.
+// Calls onChange(name, 'yyyy-MM-dd') when all three parts are selected,
+// or onChange(name, '') if any part is cleared.
+const ThreePartDateField = ({ label, name, value, onChange, error }) => {
+  // Parse the incoming yyyy-MM-dd value into parts so the dropdowns
+  // are pre-filled when the component mounts with an existing date (e.g. ProfilePage).
+  const fromValue = (v) => {
+    if (!v) return { day: '', month: '', year: '' };
+    const parts = v.split('-');
+    return {
+      year:  parts[0] || '',
+      month: parts[1] || '',
+      day:   parts[2] || '',
+    };
+  };
+
+  // Local state holds the three parts independently.
+  // This is what was missing — without local state, partial selections
+  // are lost on every re-render because the parent value is '' until all three are set.
+  const [parts, setParts] = useState(() => fromValue(value));
+
+  // When the parent value changes externally (e.g. profile page reset),
+  // sync local state back.
+  useEffect(() => {
+    setParts(fromValue(value));
+  }, [value]);
+
+  const handlePart = (part, val) => {
+    const updated = { ...parts, [part]: val };
+    setParts(updated);
+    // Only call parent onChange once all three parts are filled.
+    if (updated.year && updated.month && updated.day) {
+      onChange(name, `${updated.year}-${updated.month}-${updated.day}`);
+    } else {
+      onChange(name, '');
+    }
+  };
+
+  const days = Array.from({ length: 31 }, (_, i) =>
+    String(i + 1).padStart(2, '0')
+  );
+
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 7 }, (_, i) => String(currentYear + i));
+
+  const selectClass = (hasError) =>
+    `bg-slate-950 border text-sm rounded-xl px-3 py-3 focus:outline-none focus:ring-1 transition-colors appearance-none w-full ${
+      hasError
+        ? 'border-red-500/60 focus:border-red-400 focus:ring-red-400 text-white'
+        : 'border-slate-700 focus:border-amber-400 focus:ring-amber-400'
+    }`;
+
+  return (
+    <div>
+      <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5">
+        {label}
+      </label>
+      <div className="grid grid-cols-3 gap-2">
+
+        {/* Day */}
+        <select
+          value={parts.day}
+          onChange={(e) => handlePart('day', e.target.value)}
+          className={`${selectClass(!!error)} ${parts.day ? 'text-white' : 'text-slate-500'}`}
+        >
+          <option value="" disabled>DD</option>
+          {days.map((d) => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
+
+        {/* Month */}
+        <select
+          value={parts.month}
+          onChange={(e) => handlePart('month', e.target.value)}
+          className={`${selectClass(!!error)} ${parts.month ? 'text-white' : 'text-slate-500'}`}
+        >
+          <option value="" disabled>MM</option>
+          {MONTHS.map((m, i) => (
+            <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>
+          ))}
+        </select>
+
+        {/* Year */}
+        <select
+          value={parts.year}
+          onChange={(e) => handlePart('year', e.target.value)}
+          className={`${selectClass(!!error)} ${parts.year ? 'text-white' : 'text-slate-500'}`}
+        >
+          <option value="" disabled>YYYY</option>
+          {years.map((y) => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+
+      </div>
+      {error && <p className="mt-1.5 text-red-400 text-xs">{error}</p>}
+    </div>
+  );
+};
 
 export default OnboardingPage;

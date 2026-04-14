@@ -25,10 +25,13 @@ const LoginPage = () => {
     e.preventDefault();
     setError('');
 
+    // Client-side validation before hitting the API.
     if (!formData.email || !formData.password) {
-      setError('Please fill in both fields.');
-      return;
+      return setError('All fields are required');
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      return setError('Please enter a valid email address');
+      }
 
     setLoading(true);
     try {
@@ -36,8 +39,7 @@ const LoginPage = () => {
       login(data.token, data.user);
       navigate('/dashboard');
     } catch (err) {
-      const msg = err.response?.data?.message || 'Something went wrong. Please try again.';
-      setError(msg);
+      setError(err.message);
     } finally {
       setLoading(false);
     }

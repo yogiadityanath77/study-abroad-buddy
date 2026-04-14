@@ -30,6 +30,7 @@ const ChatPage = () => {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const MAX_LENGTH = 2000;
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -52,6 +53,12 @@ const ChatPage = () => {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, sending]);
+
+  useEffect(() => {
+    const handler = (e) => setInput(e.detail);
+    window.addEventListener('suggestion', handler);
+    return () => window.removeEventListener('suggestion', handler);
+  }, []);
 
   // Sends a message, appends user bubble immediately, then appends bot reply
   const handleSend = async () => {
@@ -167,20 +174,28 @@ const ChatPage = () => {
               onKeyDown={handleKeyDown}
               placeholder="Ask about your visa, health, housing, culture…"
               rows={1}
+              maxLength={MAX_LENGTH}
               className="flex-1 bg-slate-900 border border-slate-700 text-white placeholder-slate-600 rounded-2xl px-4 py-3 text-sm resize-none focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition-colors leading-relaxed"
               style={{ maxHeight: '120px', overflowY: 'auto' }}
             />
             <button
               onClick={handleSend}
-              disabled={!input.trim() || sending}
+              disabled={!input.trim() || sending || input.length > MAX_LENGTH}
               className="shrink-0 w-11 h-11 rounded-2xl bg-amber-400 hover:bg-amber-300 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 flex items-center justify-center transition-colors shadow-lg shadow-amber-400/20"
             >
-              {/* Send icon */}
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.269 20.876L5.999 12zm0 0h7.5" />
               </svg>
             </button>
           </div>
+          {/* Character counter — only appears when approaching the limit */}
+          {input.length > MAX_LENGTH * 0.8 && (
+            <p className={`text-xs text-right mt-1 ${
+              input.length >= MAX_LENGTH ? 'text-red-400' : 'text-slate-500'
+            }`}>
+              {input.length}/{MAX_LENGTH}
+            </p>
+          )}
           <p className="text-slate-700 text-xs mt-2 text-center">
             Enter to send {'·'} Shift+Enter for new line
           </p>

@@ -1,21 +1,62 @@
+# ========================
 # Dependencies
+# ========================
 node_modules/
 client/node_modules/
 server/node_modules/
 
-# Environment variables — NEVER commit these
+# ========================
+# Environment variables
+# NEVER commit these — they contain your API keys and DB password
+# ========================
 .env
+.env.local
+.env.development
+.env.production
 client/.env
+client/.env.local
 server/.env
+server/.env.local
 
+# ========================
+# ChromaDB vector store data
+# ========================
+chroma-data/
+
+# ========================
+# Project planning / notes files (root level)
+# ========================
+agents-and-pages.txt
+week-plan.txt
+CLAUDE.md
+progress.md
+
+# ========================
 # Build output
+# ========================
 client/dist/
 client/build/
 
-# OS files
+# ========================
+# OS generated files
+# ========================
 .DS_Store
+.DS_Store?
+._*
 Thumbs.db
+ehthumbs.db
 
+# ========================
 # Logs
+# ========================
+logs/
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ========================
+# Editor / IDE files
+# ========================
+.vscode/
+.idea/

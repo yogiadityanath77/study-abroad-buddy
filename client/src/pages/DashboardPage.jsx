@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getProfile } from '../api/user';
+import { getProfile, getChecklist, updateChecklist } from '../api/user';
 import { useAuth } from '../context/AuthContext';
 
 // ── Formats a JS Date or ISO string to "12 Jan 2025" ──
@@ -31,6 +31,13 @@ const DashboardPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Checklist state — fetched separately so the dashboard renders immediately
+  // while the agent generates the list on first load (can take a few seconds).
+  const [checklistItems, setChecklistItems] = useState([]);
+  const [ticked, setTicked] = useState([]);
+  const [checklistLoading, setChecklistLoading] = useState(true);
+  const [checklistError, setChecklistError] = useState('');
+
   // Loads full profile from DB on mount — AuthContext only holds minimal user data
   useEffect(() => {
     const fetchProfile = async () => {
@@ -46,14 +53,49 @@ const DashboardPage = () => {
     fetchProfile();
   }, []);
 
+  // Fetches checklist in parallel with profile — separate loading state
+  // so the rest of the dashboard is usable while the list loads.
+  useEffect(() => {
+    const fetchChecklist = async () => {
+      try {
+        const data = await getChecklist();
+        setChecklistItems(data.checklistItems || []);
+        setTicked(data.checklist || []);
+      } catch (err) {
+        setChecklistError('Could not load checklist.');
+      } finally {
+        setChecklistLoading(false);
+      }
+    };
+    fetchChecklist();
+  }, []);
+
+  // Optimistically toggles an item ticked/unticked and persists to DB.
+  // Reverts to previous state if the server call fails.
+  const handleToggle = async (item) => {
+    const newTicked = ticked.includes(item)
+      ? ticked.filter((i) => i !== item)
+      : [...ticked, item];
+    setTicked(newTicked);
+    try {
+      await updateChecklist(newTicked);
+    } catch (err) {
+      setTicked(ticked);
+    }
+  };
+
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
-  const checkedCount = profile?.checklist?.length ?? 0;
-  const totalItems = 8; // placeholder total — Week 4 will replace with AI-generated checklist
-  const progressPercent = Math.min(Math.round((checkedCount / totalItems) * 100), 100);
+  // Drive progress bar from real data once checklist has loaded,
+  // fall back to 0/0 while loading so the bar renders empty rather than full.
+  const checkedCount = ticked.length;
+  const totalItems = checklistItems.length;
+  const progressPercent = totalItems > 0
+    ? Math.min(Math.round((checkedCount / totalItems) * 100), 100)
+    : 0;
   const countdown = daysUntil(profile?.travelStartDate);
 
   if (loading) return <LoadingScreen />;
@@ -137,12 +179,12 @@ const DashboardPage = () => {
             )}
           </div>
 
-          {/* ── Checklist progress ──────────────────────────── */}
+          {/* ── Checklist progress bar (inside welcome card, unchanged position) ── */}
           <div className="mt-8 pt-6 border-t border-slate-800">
             <div className="flex justify-between items-center mb-2">
               <p className="text-slate-400 text-sm font-medium">Pre-departure checklist</p>
               <p className="text-slate-500 text-xs">
-                {checkedCount} / {totalItems} complete
+                {checklistLoading ? '…' : `${checkedCount} / ${totalItems} complete`}
               </p>
             </div>
             <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
@@ -152,11 +194,84 @@ const DashboardPage = () => {
               />
             </div>
             <p className="text-slate-600 text-xs mt-2">
-              {progressPercent === 100
-                ? '🎉 All done — you\'re ready to go!'
-                : `${progressPercent}% — keep going, you\'re getting there.`}
+              {checklistLoading
+                ? 'Generating your personalised checklist…'
+                : progressPercent === 100
+                  ? "🎉 All done — you're ready to go!"
+                  : `${progressPercent}% — keep going, you're getting there.`}
             </p>
           </div>
+        </div>
+
+        {/* ── CHECKLIST ITEMS ─────────────────────────────── */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-5">
+            <p className="text-white font-semibold">Pre-departure checklist</p>
+            {!checklistLoading && totalItems > 0 && (
+              <span className={`text-xs font-semibold px-3 py-1 rounded-full border ${
+                checkedCount === totalItems
+                  ? 'bg-emerald-400/10 border-emerald-400/30 text-emerald-400'
+                  : 'bg-amber-400/10 border-amber-400/30 text-amber-400'
+              }`}>
+                {checkedCount}/{totalItems}
+              </span>
+            )}
+          </div>
+
+          {/* Loading state — spinner + skeleton rows */}
+          {checklistLoading && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 text-sm text-amber-400/70 mb-4">
+                <div className="w-4 h-4 border-2 border-amber-400/50 border-t-transparent rounded-full animate-spin" />
+                Generating your personalised checklist…
+              </div>
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="h-11 bg-slate-800 rounded-xl animate-pulse" />
+              ))}
+            </div>
+          )}
+
+          {/* Error state */}
+          {checklistError && !checklistLoading && (
+            <p className="text-red-400 text-sm">{checklistError}</p>
+          )}
+
+          {/* Checklist items */}
+          {!checklistLoading && !checklistError && checklistItems.length > 0 && (
+            <ul className="space-y-2">
+              {checklistItems.map((item) => {
+                const isChecked = ticked.includes(item);
+                return (
+                  <li key={item}>
+                    <button
+                      onClick={() => handleToggle(item)}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all duration-150 ${
+                        isChecked
+                          ? 'bg-emerald-400/10 border-emerald-400/20 text-emerald-400'
+                          : 'bg-slate-800/50 border-slate-700/50 text-slate-300 hover:border-amber-400/30 hover:bg-amber-400/5'
+                      }`}
+                    >
+                      {/* Circle checkbox */}
+                      <span className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                        isChecked
+                          ? 'bg-emerald-400 border-emerald-400'
+                          : 'border-slate-600'
+                      }`}>
+                        {isChecked && (
+                          <svg className="w-3 h-3 text-slate-950" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className={`text-sm leading-snug ${isChecked ? 'line-through opacity-50' : ''}`}>
+                        {item}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
 
         {/* ── MODULE CARDS ────────────────────────────────── */}

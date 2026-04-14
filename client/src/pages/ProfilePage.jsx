@@ -7,66 +7,45 @@ import { getProfile, updateProfile } from '../api/user';
 import { useAuth } from '../context/AuthContext';
 import axiosInstance from '../api/axiosInstance';
 
-// ── Country + city data (same as OnboardingPage) ──────────────
-const COUNTRIES = [
-  'Australia', 'Austria', 'Belgium', 'Brazil', 'Canada', 'China', 'Colombia',
-  'Czech Republic', 'Denmark', 'Finland', 'France', 'Germany', 'Greece',
-  'Hungary', 'India', 'Indonesia', 'Ireland', 'Italy', 'Japan', 'Malaysia',
-  'Mexico', 'Netherlands', 'New Zealand', 'Nigeria', 'Norway', 'Pakistan',
-  'Philippines', 'Poland', 'Portugal', 'Saudi Arabia', 'Singapore', 'South Korea',
-  'Spain', 'Sweden', 'Switzerland', 'Thailand', 'Turkey', 'UAE', 'Ukraine',
-  'United Kingdom', 'United States', 'Vietnam',
+// ── Destination countries — only the 8 covered by our RAG data ──
+const DESTINATION_COUNTRIES = [
+  'Australia',
+  'Canada',
+  'France',
+  'Germany',
+  'Ireland',
+  'Netherlands',
+  'United Kingdom',
+  'United States',
 ];
 
+// ── Cities keyed by destination country only ──
 const CITIES_BY_COUNTRY = {
   Australia: ['Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Adelaide'],
-  Austria: ['Vienna', 'Graz', 'Innsbruck', 'Salzburg'],
-  Belgium: ['Brussels', 'Ghent', 'Leuven', 'Liège'],
-  Brazil: ['São Paulo', 'Rio de Janeiro', 'Brasília', 'Belo Horizonte'],
   Canada: ['Toronto', 'Vancouver', 'Montreal', 'Ottawa', 'Calgary'],
-  China: ['Beijing', 'Shanghai', 'Guangzhou', 'Shenzhen', 'Chengdu'],
-  Colombia: ['Bogotá', 'Medellín', 'Cali'],
-  'Czech Republic': ['Prague', 'Brno', 'Ostrava'],
-  Denmark: ['Copenhagen', 'Aarhus', 'Odense'],
-  Finland: ['Helsinki', 'Tampere', 'Turku', 'Oulu'],
   France: ['Paris', 'Lyon', 'Marseille', 'Toulouse', 'Bordeaux', 'Strasbourg'],
   Germany: ['Berlin', 'Munich', 'Hamburg', 'Frankfurt', 'Cologne', 'Stuttgart', 'Heidelberg'],
-  Greece: ['Athens', 'Thessaloniki'],
-  Hungary: ['Budapest', 'Debrecen', 'Pécs'],
-  India: ['Mumbai', 'Delhi', 'Bangalore', 'Hyderabad', 'Chennai', 'Pune'],
-  Indonesia: ['Jakarta', 'Bali', 'Bandung', 'Yogyakarta'],
   Ireland: ['Dublin', 'Cork', 'Galway', 'Limerick'],
-  Italy: ['Rome', 'Milan', 'Florence', 'Bologna', 'Turin', 'Naples'],
-  Japan: ['Tokyo', 'Osaka', 'Kyoto', 'Nagoya', 'Fukuoka', 'Sapporo'],
-  Malaysia: ['Kuala Lumpur', 'Penang', 'Johor Bahru'],
-  Mexico: ['Mexico City', 'Guadalajara', 'Monterrey'],
   Netherlands: ['Amsterdam', 'Rotterdam', 'The Hague', 'Utrecht', 'Eindhoven', 'Delft'],
-  'New Zealand': ['Auckland', 'Wellington', 'Christchurch'],
-  Nigeria: ['Lagos', 'Abuja', 'Ibadan'],
-  Norway: ['Oslo', 'Bergen', 'Trondheim'],
-  Pakistan: ['Karachi', 'Lahore', 'Islamabad'],
-  Philippines: ['Manila', 'Cebu City', 'Davao'],
-  Poland: ['Warsaw', 'Kraków', 'Wrocław', 'Poznań'],
-  Portugal: ['Lisbon', 'Porto', 'Coimbra', 'Braga'],
-  'Saudi Arabia': ['Riyadh', 'Jeddah', 'Dammam'],
-  Singapore: ['Singapore'],
-  'South Korea': ['Seoul', 'Busan', 'Daegu', 'Incheon'],
-  Spain: ['Madrid', 'Barcelona', 'Valencia', 'Seville', 'Granada', 'Bilbao'],
-  Sweden: ['Stockholm', 'Gothenburg', 'Malmö', 'Uppsala'],
-  Switzerland: ['Zurich', 'Geneva', 'Basel', 'Lausanne', 'Bern'],
-  Thailand: ['Bangkok', 'Chiang Mai', 'Phuket'],
-  Turkey: ['Istanbul', 'Ankara', 'Izmir'],
-  UAE: ['Dubai', 'Abu Dhabi', 'Sharjah'],
-  Ukraine: ['Kyiv', 'Lviv', 'Kharkiv'],
   'United Kingdom': ['London', 'Edinburgh', 'Manchester', 'Birmingham', 'Bristol', 'Leeds', 'Glasgow'],
   'United States': ['New York', 'Los Angeles', 'Chicago', 'Boston', 'San Francisco', 'Seattle', 'Austin'],
-  Vietnam: ['Hanoi', 'Ho Chi Minh City', 'Da Nang'],
 };
 
-// Converts ISO date string to yyyy-MM-dd for date input value
-const toDateInputValue = (dateStr) => {
+// ── Month names for the date dropdowns ──
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+// Converts an ISO date string to yyyy-MM-dd so the ThreePartDateField
+// can parse it back into day/month/year parts on load.
+const toDateValue = (dateStr) => {
   if (!dateStr) return '';
-  return new Date(dateStr).toISOString().split('T')[0];
+  try {
+    return new Date(dateStr).toISOString().split('T')[0];
+  } catch {
+    return '';
+  }
 };
 
 const ProfilePage = () => {
@@ -84,7 +63,7 @@ const ProfilePage = () => {
   const [profileErrors, setProfileErrors] = useState({});
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
-  const [profileToast, setProfileToast] = useState(''); // 'success' | 'error' | ''
+  const [profileToast, setProfileToast] = useState('');
 
   // ── Password form state ──
   const [passwords, setPasswords] = useState({
@@ -94,10 +73,10 @@ const ProfilePage = () => {
   });
   const [passwordErrors, setPasswordErrors] = useState({});
   const [passwordSaving, setPasswordSaving] = useState(false);
-  const [passwordToast, setPasswordToast] = useState(''); // 'success' | 'error' | ''
+  const [passwordToast, setPasswordToast] = useState('');
   const [passwordToastMsg, setPasswordToastMsg] = useState('');
 
-  // Loads full profile from DB on mount and pre-fills the form
+  // Loads full profile from DB on mount and pre-fills the form.
   useEffect(() => {
     const fetchProfile = async () => {
       try {
@@ -107,8 +86,9 @@ const ProfilePage = () => {
           destinationCountry: data.destinationCountry || '',
           destinationCity: data.destinationCity || '',
           university: data.university || '',
-          travelStartDate: toDateInputValue(data.travelStartDate),
-          travelEndDate: toDateInputValue(data.travelEndDate),
+          // Convert ISO strings to yyyy-MM-dd so ThreePartDateField can parse them.
+          travelStartDate: toDateValue(data.travelStartDate),
+          travelEndDate: toDateValue(data.travelEndDate),
         });
       } catch (err) {
         setProfileToast('error');
@@ -119,7 +99,7 @@ const ProfilePage = () => {
     fetchProfile();
   }, []);
 
-  // Shows a toast for 3 seconds then clears it
+  // Shows a toast for 3 seconds then clears it.
   const showToast = (setter, value) => {
     setter(value);
     setTimeout(() => setter(''), 3000);
@@ -137,22 +117,28 @@ const ProfilePage = () => {
     setProfileErrors((prev) => ({ ...prev, [name]: '' }));
   };
 
-  // Validates profile fields before saving
+  // Receives yyyy-MM-dd string from ThreePartDateField.
+  const handleDateChange = (name, value) => {
+    setProfile((prev) => ({ ...prev, [name]: value }));
+    setProfileErrors((prev) => ({ ...prev, [name]: '' }));
+  };
+
+  // Validates profile fields before saving.
   const validateProfile = () => {
     const e = {};
     if (!profile.destinationCountry) e.destinationCountry = 'Please select a destination country.';
     if (!profile.destinationCity) e.destinationCity = 'Please select a city.';
     if (!profile.university.trim()) e.university = 'Please enter your university name.';
-    if (!profile.travelStartDate) e.travelStartDate = 'Please select a start date.';
-    if (!profile.travelEndDate) e.travelEndDate = 'Please select an end date.';
+    if (!profile.travelStartDate) e.travelStartDate = 'Please select a departure date.';
+    if (!profile.travelEndDate) e.travelEndDate = 'Please select a return date.';
     if (profile.travelStartDate && profile.travelEndDate &&
-        profile.travelStartDate >= profile.travelEndDate) {
-      e.travelEndDate = 'End date must be after start date.';
+        new Date(profile.travelEndDate) <= new Date(profile.travelStartDate)) {
+      e.travelEndDate = 'Return date must be after departure date.';
     }
     return e;
   };
 
-  // Saves profile changes via PATCH /api/user/profile
+  // Saves profile changes via PATCH /api/user/profile.
   const handleProfileSave = async () => {
     const errors = validateProfile();
     if (Object.keys(errors).length > 0) {
@@ -165,11 +151,11 @@ const ProfilePage = () => {
         ...profile,
         university: profile.university.trim(),
       });
-      // Sync AuthContext with updated name/email in case they changed
       const token = localStorage.getItem('token');
       login(token, { ...user, ...updated });
       showToast(setProfileToast, 'success');
     } catch (err) {
+      setPasswordToastMsg(err.message);
       showToast(setProfileToast, 'error');
     } finally {
       setProfileSaving(false);
@@ -184,7 +170,7 @@ const ProfilePage = () => {
     setPasswordErrors((prev) => ({ ...prev, [name]: '' }));
   };
 
-  // Validates password fields before saving
+  // Validates password fields before saving.
   const validatePasswords = () => {
     const e = {};
     if (!passwords.currentPassword) e.currentPassword = 'Please enter your current password.';
@@ -199,7 +185,7 @@ const ProfilePage = () => {
     return e;
   };
 
-  // Sends password change request to backend
+  // Sends password change request to backend.
   const handlePasswordSave = async () => {
     const errors = validatePasswords();
     if (Object.keys(errors).length > 0) {
@@ -216,8 +202,7 @@ const ProfilePage = () => {
       setPasswordToastMsg('Password updated successfully.');
       showToast(setPasswordToast, 'success');
     } catch (err) {
-      const msg = err.response?.data?.message || 'Failed to update password.';
-      setPasswordToastMsg(msg);
+      setPasswordToastMsg(err.message);
       showToast(setPasswordToast, 'error');
     } finally {
       setPasswordSaving(false);
@@ -269,11 +254,11 @@ const ProfilePage = () => {
               <Toast text="Saved successfully" type="success" />
             )}
             {profileToast === 'error' && (
-              <Toast text="Failed to save" type="error" />
+              <Toast text={passwordToastMsg || 'Failed to save'} type="error" />
             )}
           </div>
 
-          {/* Home country — read only, set during onboarding */}
+          {/* Home country — read only */}
           <div>
             <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5">
               Home country
@@ -293,7 +278,7 @@ const ProfilePage = () => {
             name="destinationCountry"
             value={profile.destinationCountry}
             onChange={handleProfileChange}
-            options={COUNTRIES}
+            options={DESTINATION_COUNTRIES}
             placeholder="Select a country"
             error={profileErrors.destinationCountry}
           />
@@ -334,26 +319,22 @@ const ProfilePage = () => {
             )}
           </div>
 
-          {/* Travel dates */}
-          <div className="grid grid-cols-2 gap-3">
-            <DateField
-              id="travelStartDate"
-              label="Start date"
-              name="travelStartDate"
-              value={profile.travelStartDate}
-              onChange={handleProfileChange}
-              error={profileErrors.travelStartDate}
-            />
-            <DateField
-              id="travelEndDate"
-              label="End date"
-              name="travelEndDate"
-              value={profile.travelEndDate}
-              onChange={handleProfileChange}
-              error={profileErrors.travelEndDate}
-              min={profile.travelStartDate || undefined}
-            />
-          </div>
+          {/* Travel dates — ThreePartDateField replaces native date inputs */}
+          <ThreePartDateField
+            label="Departure date"
+            name="travelStartDate"
+            value={profile.travelStartDate}
+            onChange={handleDateChange}
+            error={profileErrors.travelStartDate}
+          />
+
+          <ThreePartDateField
+            label="Return date"
+            name="travelEndDate"
+            value={profile.travelEndDate}
+            onChange={handleDateChange}
+            error={profileErrors.travelEndDate}
+          />
 
           <button
             onClick={handleProfileSave}
@@ -426,7 +407,6 @@ const ProfilePage = () => {
 
 // ── Sub-components ────────────────────────────────────────────
 
-// Labelled select field with error state
 const SelectField = ({ id, label, name, value, onChange, options, placeholder, error, disabled }) => (
   <div>
     <label htmlFor={id} className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5">
@@ -455,30 +435,89 @@ const SelectField = ({ id, label, name, value, onChange, options, placeholder, e
   </div>
 );
 
-// Date input with label + error state
-const DateField = ({ id, label, name, value, onChange, error, min }) => (
-  <div>
-    <label htmlFor={id} className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5">
-      {label}
-    </label>
-    <input
-      id={id}
-      name={name}
-      type="date"
-      value={value}
-      onChange={onChange}
-      min={min}
-      className={`w-full bg-slate-950 border text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 transition-colors ${
-        error
-          ? 'border-red-500/60 focus:border-red-400 focus:ring-red-400'
-          : 'border-slate-700 focus:border-amber-400 focus:ring-amber-400'
-      }`}
-    />
-    {error && <p className="mt-1.5 text-red-400 text-xs">{error}</p>}
-  </div>
-);
+// Three-part date selector — Day / Month / Year dropdowns in DD/MM/YYYY order.
+// Calls onChange(name, 'yyyy-MM-dd') when all three parts are selected,
+// or onChange(name, '') if any part is cleared.
+const ThreePartDateField = ({ label, name, value, onChange, error }) => {
+  const parts = value ? value.split('-') : ['', '', ''];
+  const selectedYear  = parts[0] || '';
+  const selectedMonth = parts[1] || '';
+  const selectedDay   = parts[2] || '';
 
-// Password input with label, hint, error state
+  const handlePart = (part, val) => {
+    const year  = part === 'year'  ? val : selectedYear;
+    const month = part === 'month' ? val : selectedMonth;
+    const day   = part === 'day'   ? val : selectedDay;
+    if (year && month && day) {
+      onChange(name, `${year}-${month}-${day}`);
+    } else {
+      onChange(name, '');
+    }
+  };
+
+  const days = Array.from({ length: 31 }, (_, i) =>
+    String(i + 1).padStart(2, '0')
+  );
+
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 7 }, (_, i) => String(currentYear + i));
+
+  const selectClass = (hasError) =>
+    `bg-slate-950 border text-sm rounded-xl px-3 py-3 focus:outline-none focus:ring-1 transition-colors appearance-none w-full ${
+      hasError
+        ? 'border-red-500/60 focus:border-red-400 focus:ring-red-400 text-white'
+        : 'border-slate-700 focus:border-amber-400 focus:ring-amber-400'
+    }`;
+
+  return (
+    <div>
+      <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5">
+        {label}
+      </label>
+      <div className="grid grid-cols-3 gap-2">
+
+        {/* Day */}
+        <select
+          value={selectedDay}
+          onChange={(e) => handlePart('day', e.target.value)}
+          className={`${selectClass(!!error)} ${selectedDay ? 'text-white' : 'text-slate-500'}`}
+        >
+          <option value="" disabled>DD</option>
+          {days.map((d) => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
+
+        {/* Month */}
+        <select
+          value={selectedMonth}
+          onChange={(e) => handlePart('month', e.target.value)}
+          className={`${selectClass(!!error)} ${selectedMonth ? 'text-white' : 'text-slate-500'}`}
+        >
+          <option value="" disabled>MM</option>
+          {MONTHS.map((m, i) => (
+            <option key={m} value={String(i + 1).padStart(2, '0')}>{m}</option>
+          ))}
+        </select>
+
+        {/* Year */}
+        <select
+          value={selectedYear}
+          onChange={(e) => handlePart('year', e.target.value)}
+          className={`${selectClass(!!error)} ${selectedYear ? 'text-white' : 'text-slate-500'}`}
+        >
+          <option value="" disabled>YYYY</option>
+          {years.map((y) => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+
+      </div>
+      {error && <p className="mt-1.5 text-red-400 text-xs">{error}</p>}
+    </div>
+  );
+};
+
 const PasswordField = ({ id, label, name, value, onChange, placeholder, error, hint }) => (
   <div>
     <label htmlFor={id} className="block text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5">
@@ -503,7 +542,6 @@ const PasswordField = ({ id, label, name, value, onChange, placeholder, error, h
   </div>
 );
 
-// Inline toast — auto-dismissed by parent via setTimeout
 const Toast = ({ text, type }) => (
   <span className={`text-xs font-medium px-3 py-1.5 rounded-full border ${
     type === 'success'
@@ -514,7 +552,6 @@ const Toast = ({ text, type }) => (
   </span>
 );
 
-// Full-screen loading state
 const LoadingScreen = () => (
   <div className="min-h-screen bg-slate-950 flex items-center justify-center">
     <div className="text-center">

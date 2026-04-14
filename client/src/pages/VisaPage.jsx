@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getGuide } from '../api/guide';
+import { getProfile, updateTickedItems } from '../api/user';
 
 const VisaPage = () => {
   const [guide, setGuide] = useState(null);
@@ -11,7 +12,7 @@ const VisaPage = () => {
   const [error, setError] = useState('');
   const [checkedDocs, setCheckedDocs] = useState([]);
 
-  // Fetches visa guide for the logged-in user's home + destination country
+  // Fetches visa guide for the logged-in user's home + destination country.
   useEffect(() => {
     const fetchGuide = async () => {
       try {
@@ -26,11 +27,32 @@ const VisaPage = () => {
     fetchGuide();
   }, []);
 
-  // Toggles a document item in the local checked list
-  const toggleDoc = (doc) => {
-    setCheckedDocs((prev) =>
-      prev.includes(doc) ? prev.filter((d) => d !== doc) : [...prev, doc]
-    );
+  // Seeds checkedDocs from the user's saved profile on mount.
+  // Runs independently of the guide fetch so neither blocks the other.
+  useEffect(() => {
+    const fetchSavedDocs = async () => {
+      try {
+        const data = await getProfile();
+        setCheckedDocs(data.tickedDocs || []);
+      } catch (err) {
+        // Non-critical — ticks just won't be pre-filled if this fails.
+      }
+    };
+    fetchSavedDocs();
+  }, []);
+
+  // Optimistically toggles a document ticked/unticked and persists to DB.
+  // Reverts to previous state if the server call fails.
+  const toggleDoc = async (doc) => {
+    const newDocs = checkedDocs.includes(doc)
+      ? checkedDocs.filter((d) => d !== doc)
+      : [...checkedDocs, doc];
+    setCheckedDocs(newDocs);
+    try {
+      await updateTickedItems({ tickedDocs: newDocs });
+    } catch (err) {
+      setCheckedDocs(checkedDocs);
+    }
   };
 
   const checkedCount = checkedDocs.length;
@@ -120,7 +142,6 @@ const VisaPage = () => {
                     Tick each one off as you gather them
                   </p>
                 </div>
-                {/* Progress pill */}
                 <div className={`text-xs font-bold px-3 py-1.5 rounded-full border ${
                   allChecked
                     ? 'bg-emerald-400/10 border-emerald-400/30 text-emerald-400'
@@ -152,7 +173,6 @@ const VisaPage = () => {
                             : 'bg-slate-800/50 border-slate-700 text-slate-200 hover:border-slate-600'
                         }`}
                       >
-                        {/* Checkbox circle */}
                         <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all duration-150 ${
                           checked
                             ? 'bg-emerald-400 border-emerald-400 text-slate-950'
@@ -180,20 +200,20 @@ const VisaPage = () => {
 
             {/* ── EMBASSY LINK ────────────────────────────── */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
+              <div>
                 <h2 className="text-white font-bold mb-0.5">Official embassy website</h2>
                 <p className="text-slate-400 text-sm">
-                Apply directly and check for the latest requirements.
+                  Apply directly and check for the latest requirements.
                 </p>
-            </div>
-            <a
+              </div>
+              <a
                 href={guide.content.embassyLink}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="shrink-0 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-sm transition-colors shadow-lg shadow-amber-400/20 whitespace-nowrap"
-            >
+              >
                 {'Visit embassy site ↗'}
-            </a>
+              </a>
             </div>
 
             {/* ── PLACEHOLDER NOTICE ──────────────────────── */}
@@ -229,7 +249,6 @@ const VisaPage = () => {
 
 // ── Sub-components ────────────────────────────────────────────
 
-// Simple info card with label + value
 const InfoCard = ({ emoji, label, value, accent }) => (
   <div className={`border rounded-2xl p-5 ${accent}`}>
     <span className="text-2xl">{emoji}</span>
@@ -240,7 +259,6 @@ const InfoCard = ({ emoji, label, value, accent }) => (
   </div>
 );
 
-// Full-screen loading state
 const LoadingScreen = () => (
   <div className="min-h-screen bg-slate-950 flex items-center justify-center">
     <div className="text-center">

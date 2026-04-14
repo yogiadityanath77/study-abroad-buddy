@@ -30,15 +30,26 @@ const RegisterPage = () => {
 
   // Client-side validation — returns an errors object, empty if all valid
   const validate = () => {
-    const e = {};
-    if (!formData.name.trim()) e.name = 'Name is required.';
-    if (!formData.email.trim()) e.email = 'Email is required.';
-    if (!formData.password) e.password = 'Password is required.';
-    else if (formData.password.length < 6) e.password = 'Password must be at least 6 characters.';
-    if (!formData.confirmPassword) e.confirmPassword = 'Please confirm your password.';
-    else if (formData.password !== formData.confirmPassword) e.confirmPassword = 'Passwords do not match.';
-    return e;
-  };
+  const newErrors = {};
+  if (!formData.name.trim()) newErrors.name = 'Name is required';
+  if (formData.name.trim().length > 0 && formData.name.trim().length < 2) {
+    newErrors.name = 'Name must be at least 2 characters';
+  }
+  if (!formData.email.trim()) {
+    newErrors.email = 'Email is required';
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+    newErrors.email = 'Please enter a valid email address';
+  }
+  if (!formData.password) newErrors.password = 'Password is required';
+  if (formData.password && formData.password.length < 6) {
+    newErrors.password = 'Password must be at least 6 characters';
+  }
+  if (!formData.confirmPassword) newErrors.confirmPassword = 'Please confirm your password';
+  if (formData.password && formData.confirmPassword && formData.password !== formData.confirmPassword) {
+    newErrors.confirmPassword = 'Passwords do not match';
+  }
+  return newErrors;
+};
 
   // Validates, calls registerUser(), stores JWT + user, navigates to /onboarding
   const handleSubmit = async (e) => {

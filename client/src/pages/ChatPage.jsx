@@ -1,9 +1,10 @@
 // client/src/pages/ChatPage.jsx
-// P-10: Protected AI chat — message history, send message, agent badge, typing indicator
+// P-10: Protected AI chat — message history, send message, agent badge, streaming
 
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { getChatHistory, sendMessage } from '../api/chat';
+import { getChatHistory } from '../api/chat';
+import socket from '../api/socket';
 
 // Maps intent string to a display label and colour for the agent badge
 const AGENT_BADGE = {
@@ -24,6 +25,9 @@ const formatTime = (dateStr) => {
   });
 };
 
+// Sentinel _id used to identify the in-progress streaming bubble in the messages array
+const STREAMING_ID = 'streaming-bot-bubble';
+
 const ChatPage = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -34,7 +38,7 @@ const ChatPage = () => {
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Loads last 30 messages from DB on mount
+  // Loads last 30 messages from DB on mount via REST (unchanged from Phase 1)
   useEffect(() => {
     const fetchHistory = async () => {
       try {
@@ -49,23 +53,99 @@ const ChatPage = () => {
     fetchHistory();
   }, []);
 
-  // Scrolls to the bottom of the message list whenever messages change
+  // ── Socket event listeners ─────────────────────────────────────────────────
+  // Registered once on mount, cleaned up on unmount.
+  // Each handler is a stable function reference — no dependencies on state
+  // that would cause re-registration on every render.
+  useEffect(() => {
+    // chat:token — a new piece of the bot's response has arrived.
+    // If the streaming bubble already exists in the messages array, append the
+    // token to its message string. If it doesn't exist yet (this is the first
+    // token), hide the typing indicator and create the bubble with this token.
+    const handleToken = ({ token }) => {
+      setSending(false); // first token arrives — hide the typing indicator
+      setMessages((prev) => {
+        const existing = prev.find((m) => m._id === STREAMING_ID);
+        if (existing) {
+          // Append the new token to the existing streaming bubble
+          return prev.map((m) =>
+            m._id === STREAMING_ID
+              ? { ...m, message: m.message + token }
+              : m
+          );
+        }
+        // First token — create the streaming bubble
+        return [
+          ...prev,
+          {
+            _id: STREAMING_ID,
+            role: 'bot',
+            message: token,
+            intent: 'general', // placeholder until chat:done provides the real intent
+            createdAt: new Date().toISOString(),
+            streaming: true,
+          },
+        ];
+      });
+    };
+
+    // chat:done — the stream has finished and both messages are saved in MongoDB.
+    // Replace the temporary streaming bubble with the real saved bot document
+    // so it has a real _id, correct intent, and accurate createdAt timestamp.
+    const handleDone = ({ intent, savedBotMessage }) => {
+      setMessages((prev) => [
+        ...prev.filter((m) => m._id !== STREAMING_ID),
+        { ...savedBotMessage, intent },
+      ]);
+      setSending(false);
+      inputRef.current?.focus();
+    };
+
+    // chat:error — something failed on the server after the message was sent.
+    // Remove the optimistic user bubble and the streaming bubble (if any),
+    // and show the error banner.
+    const handleError = ({ message }) => {
+      setMessages((prev) =>
+        prev.filter(
+          (m) => !m._id?.startsWith('optimistic-') && m._id !== STREAMING_ID
+        )
+      );
+      setSending(false);
+      setError(message || 'Failed to send message. Please try again.');
+      inputRef.current?.focus();
+    };
+
+    socket.on('chat:token', handleToken);
+    socket.on('chat:done', handleDone);
+    socket.on('chat:error', handleError);
+
+    return () => {
+      socket.off('chat:token', handleToken);
+      socket.off('chat:done', handleDone);
+      socket.off('chat:error', handleError);
+    };
+  }, []); // empty deps — handlers use functional setState, never read stale state
+
+  // Scrolls to the bottom whenever the message list or sending state changes
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, sending]);
 
+  // Suggestion chip custom event — pre-fills the input box
   useEffect(() => {
     const handler = (e) => setInput(e.detail);
     window.addEventListener('suggestion', handler);
     return () => window.removeEventListener('suggestion', handler);
   }, []);
 
-  // Sends a message, appends user bubble immediately, then appends bot reply
-  const handleSend = async () => {
+  // Sends the message via socket instead of Axios.
+  // Optimistic user bubble is added immediately — same pattern as Phase 1.
+  // The typing indicator (sending === true) shows until the first chat:token arrives.
+  const handleSend = () => {
     const trimmed = input.trim();
     if (!trimmed || sending) return;
 
-    // Optimistically append the user message so the UI feels instant
+    // Append optimistic user bubble
     const optimisticUser = {
       _id: `optimistic-${Date.now()}`,
       role: 'user',
@@ -75,25 +155,11 @@ const ChatPage = () => {
     };
     setMessages((prev) => [...prev, optimisticUser]);
     setInput('');
-    setSending(true);
+    setSending(true); // shows typing indicator until first token
     setError('');
 
-    try {
-      const data = await sendMessage(trimmed);
-      // Replace optimistic message + add real bot reply from server
-      setMessages((prev) => [
-        ...prev.filter((m) => m._id !== optimisticUser._id),
-        data.userMessage,
-        data.botMessage,
-      ]);
-    } catch (err) {
-      // Remove optimistic message and show error if request fails
-      setMessages((prev) => prev.filter((m) => m._id !== optimisticUser._id));
-      setError('Failed to send message. Please try again.');
-    } finally {
-      setSending(false);
-      inputRef.current?.focus();
-    }
+    // Emit to the server — chatSocket.js handles classification, streaming, and saving
+    socket.emit('chat:message', { message: trimmed });
   };
 
   // Sends on Enter, allows Shift+Enter for newline
@@ -122,7 +188,7 @@ const ChatPage = () => {
             </span>
             <span className="text-slate-600 text-xs">5 specialist agents</span>
           </div>
-          <div className="w-24" /> {/* spacer to keep title centred */}
+          <div className="w-24" />
         </div>
       </nav>
 
@@ -149,12 +215,12 @@ const ChatPage = () => {
             </div>
           )}
 
-          {/* Messages */}
+          {/* Messages — streaming bubble renders via MessageBubble with streaming prop */}
           {messages.map((msg) => (
             <MessageBubble key={msg._id} msg={msg} />
           ))}
 
-          {/* Typing indicator — shown while waiting for bot reply */}
+          {/* Typing indicator — shown only before the first token arrives */}
           {sending && <TypingIndicator />}
 
           {/* Invisible anchor for auto-scroll */}
@@ -208,7 +274,9 @@ const ChatPage = () => {
 
 // ── Sub-components ────────────────────────────────────────────
 
-// Single message bubble — user on right, bot on left
+// Single message bubble — user on right, bot on left.
+// When msg.streaming is true, a blinking cursor is shown at the end of the text
+// to indicate the response is still being typed out.
 const MessageBubble = ({ msg }) => {
   const isUser = msg.role === 'user';
   const badge = AGENT_BADGE[msg.intent] ?? AGENT_BADGE.general;
@@ -237,21 +305,27 @@ const MessageBubble = ({ msg }) => {
           </div>
           <div className="bg-slate-900 border border-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed text-slate-200">
             {msg.message}
+            {/* Blinking cursor shown while tokens are still arriving */}
+            {msg.streaming && (
+              <span className="inline-block w-0.5 h-3.5 bg-amber-400 ml-0.5 align-middle animate-pulse" />
+            )}
           </div>
         </div>
-        {/* Agent badge + timestamp */}
+        {/* Agent badge + timestamp — badge shows placeholder colour while streaming */}
         <div className="flex items-center gap-2 mt-1.5 ml-11">
           <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${badge.color}`}>
             {badge.label}
           </span>
-          <span className="text-slate-700 text-xs">{time}</span>
+          {!msg.streaming && (
+            <span className="text-slate-700 text-xs">{time}</span>
+          )}
         </div>
       </div>
     </div>
   );
 };
 
-// Animated three-dot typing indicator shown while bot is responding
+// Animated three-dot typing indicator — shown only before the first token arrives
 const TypingIndicator = () => (
   <div className="flex justify-start">
     <div className="flex items-start gap-3">
@@ -290,10 +364,8 @@ const EmptyState = () => (
   </div>
 );
 
-// Suggestion chip in the empty state — clicking pre-fills the input
+// Suggestion chip in the empty state — clicking pre-fills the input box
 const SuggestionChip = ({ label }) => {
-  // Chips need to communicate up to the input — we use a custom event
-  // so SuggestionChip doesn't need props drilling through EmptyState
   const handleClick = () => {
     const event = new CustomEvent('suggestion', { detail: label });
     window.dispatchEvent(event);

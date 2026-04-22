@@ -1,5 +1,7 @@
 // client/src/context/AuthContext.jsx
+
 import { createContext, useContext, useState } from 'react';
+import socket from '../api/socket';
 
 const AuthContext = createContext(null);
 
@@ -11,18 +13,30 @@ export const AuthProvider = ({ children }) => {
     return stored ? JSON.parse(stored) : null;
   });
 
-  // Saves token + user to state and localStorage after login or register
+  // Saves token + user to state and localStorage after login or register.
+  // Updates the socket auth token then connects — the server JWT middleware
+  // reads socket.handshake.auth.token on each new connection, so we must
+  // set it here before calling connect() rather than relying on the value
+  // captured at module load time in socket.js.
   const login = (token, userData) => {
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
+
+    // Attach the fresh token and open the socket connection
+    socket.auth = { token };
+    socket.connect();
   };
 
-  // Clears everything on logout
+  // Clears everything on logout and closes the socket connection.
+  // Disconnecting here prevents the socket from trying to reconnect
+  // after the token has been removed from localStorage.
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+
+    socket.disconnect();
   };
 
   return (

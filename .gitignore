@@ -30,6 +30,8 @@ agents-and-pages.txt
 week-plan.txt
 CLAUDE.md
 progress.md
+phase2-progress.md
+phase2-plan.txt
 
 # ========================
 # Build output
@@ -60,3 +62,7 @@ yarn-error.log*
 # ========================
 .vscode/
 .idea/
+
+# Personal prep and progress notes
+prep-files-phase1/
+studyabroad_progressfiles/

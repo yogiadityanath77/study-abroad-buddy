@@ -1,3 +1,5 @@
+// server/agents/generalAgent.js
+
 const openaiClient = require('../config/openaiClient');
 
 // General agent — LLM only, no ChromaDB.
@@ -41,4 +43,44 @@ Be warm, encouraging, and specific. The student may be anxious about their move 
   }
 };
 
-module.exports = { run };
+// Streaming chat function — identical messages array construction as run(),
+// yields tokens one by one as an async generator.
+const stream = async function* ({ userMessage, recentMessages, destinationCountry, destinationCity }) {
+  try {
+    const systemPrompt = `You are a friendly and practical study abroad assistant helping a student who is moving to ${destinationCity}, ${destinationCountry} for university.
+You handle general questions about studying abroad that are not specifically about visas, health, culture, or housing.
+This includes: packing lists, budgeting and money management, language learning tips, booking flights, logistics of moving abroad, dealing with homesickness, adjusting to student life, and any other practical concerns.
+Be warm, encouraging, and specific. The student may be anxious about their move — be supportive as well as practical.`;
+
+    const messages = [{ role: 'system', content: systemPrompt }];
+
+    if (recentMessages && recentMessages.length > 0) {
+      for (const msg of recentMessages) {
+        messages.push({
+          role: msg.role === 'bot' ? 'assistant' : 'user',
+          content: msg.message,
+        });
+      }
+    }
+
+    messages.push({ role: 'user', content: userMessage });
+
+    const response = await openaiClient.chat.completions.create({
+      model: 'gpt-4o',
+      temperature: 0.7,
+      stream: true,
+      messages,
+    });
+
+    for await (const chunk of response) {
+      const token = chunk.choices[0]?.delta?.content;
+      if (token) {
+        yield token;
+      }
+    }
+  } catch (error) {
+    throw new Error(`General agent stream failed: ${error.message}`);
+  }
+};
+
+module.exports = { run, stream };

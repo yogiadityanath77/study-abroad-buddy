@@ -1,32 +1,35 @@
-const chromaClient = require('../config/chromaClient');
+// server/utils/ragQuery.js
+
+const pineconeIndex = require('../config/pineconeClient');
 const { embedText } = require('./embedder');
 
-// Queries a ChromaDB collection and returns the top n most relevant text chunks.
-// Takes the collection name, the query string, and how many results to return.
-// Returns an array of strings (the document chunks), ready to inject into a prompt.
+// Queries a Pinecone namespace and returns the top n most relevant text chunks.
+// Drop-in replacement for the ChromaDB version -- same function signature,
+// same return shape (array of strings), so no changes needed in any agent.
+//
+// collectionName maps directly to a Pinecone namespace.
+// Returns an empty array if Pinecone is unreachable so agents fall back gracefully.
 const ragQuery = async (collectionName, queryText, nResults = 4) => {
   try {
-    // Get the collection — pass embeddingFunction: null because we supply our own vectors
-    const collection = await chromaClient.getOrCreateCollection({
-      name: collectionName,
-      embeddingFunction: null,
-    });
-
-    // Embed the query text using OpenAI text-embedding-3-small
     const queryEmbedding = await embedText(queryText);
 
-    // Query ChromaDB for the top nResults most similar chunks
-    const results = await collection.query({
-      queryEmbeddings: [queryEmbedding],
-      nResults,
+    // SDK v7 query shape -- vector, topK, includeMetadata, optional filter.
+    const results = await pineconeIndex.namespace(collectionName).query({
+      vector: queryEmbedding,
+      topK: nResults,
+      includeMetadata: true,
     });
 
-    // results.documents is a nested array: [[chunk1, chunk2, chunk3, chunk4]]
-    // Flatten and filter out any null/empty results
-    const chunks = results.documents[0].filter(Boolean);
+    // Extract text from metadata -- stored there at ingest time because
+    // Pinecone does not return raw document text separately from vectors.
+    const chunks = results.matches
+      .map((match) => match.metadata && match.metadata.text)
+      .filter(Boolean);
+
     return chunks;
   } catch (error) {
-    throw new Error(`ragQuery failed for collection "${collectionName}": ${error.message}`);
+    console.warn('ragQuery fallback (Pinecone unavailable): ' + error.message);
+    return [];
   }
 };
 

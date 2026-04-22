@@ -1,3 +1,5 @@
+// server/agents/cultureAgent.js
+
 const openaiClient = require('../config/openaiClient');
 const { ragQuery } = require('../utils/ragQuery');
 
@@ -29,6 +31,44 @@ ${context}`;
     return response.choices[0].message.content;
   } catch (error) {
     throw new Error(`Culture agent failed: ${error.message}`);
+  }
+};
+
+// Streaming chat function — same RAG retrieval and system prompt as run(),
+// yields tokens one by one as an async generator.
+const stream = async function* ({ userMessage, destinationCountry }) {
+  try {
+    const searchQuery = `${userMessage} ${destinationCountry} culture customs student`;
+    const chunks = await ragQuery('culture_docs', searchQuery, 4);
+    const context = chunks.join('\n\n---\n\n');
+
+    const systemPrompt = `You are a culture guide assistant for international students moving to ${destinationCountry}.
+Use the following cultural information to answer the student's question helpfully and practically.
+Be specific to ${destinationCountry} where possible. If the information is not in the provided context,
+draw on general knowledge but make clear it is general guidance rather than destination-specific.
+Aim to help the student feel confident and prepared for daily life in their new country.
+
+Culture information context:
+${context}`;
+
+    const response = await openaiClient.chat.completions.create({
+      model: 'gpt-4o',
+      temperature: 0.5,
+      stream: true,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+    });
+
+    for await (const chunk of response) {
+      const token = chunk.choices[0]?.delta?.content;
+      if (token) {
+        yield token;
+      }
+    }
+  } catch (error) {
+    throw new Error(`Culture agent stream failed: ${error.message}`);
   }
 };
 
@@ -74,4 +114,4 @@ Return nothing except the JSON object. No markdown, no backticks, no explanation
   }
 };
 
-module.exports = { run, getGuideContent };
+module.exports = { run, stream, getGuideContent };

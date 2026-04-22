@@ -4,13 +4,14 @@
 require('dotenv').config(); // ← must be the very first line
 
 const express = require('express');
-const dotenv = require('dotenv');
+const http = require('http');
 const cors = require('cors');
 const connectDB = require('./config/db');
-const authRoutes = require('./routes/authRoutes'); // ADD THIS 1
-const userRoutes = require('./routes/userRoutes'); // ADD THIS 2
-const chatRoutes = require('./routes/chatRoutes'); // ADD THIS 3
-const guideRoutes = require('./routes/guideRoutes'); // ADD THIS 4
+const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
+const chatRoutes = require('./routes/chatRoutes');
+const guideRoutes = require('./routes/guideRoutes');
+const { initChatSocket } = require('./socket/chatSocket');
 
 // Ensure GuideCache model is registered with Mongoose on startup.
 require('./models/GuideCache');
@@ -20,24 +21,31 @@ connectDB();
 
 const app = express();
 
-// Middleware
-app.use(cors());           // Allows requests from your React frontend
-app.use(express.json());   // Parses incoming JSON request bodies
+// Create the HTTP server manually so Socket.io can share the same port.
+// app.listen() creates its own internal server — we need a reference to it.
+const server = http.createServer(app);
 
-// Health check route — lets you confirm the server is running
+// Initialise Socket.io and attach it to the HTTP server.
+// All socket logic lives in chatSocket.js.
+initChatSocket(server);
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Health check route
 app.get('/', (req, res) => {
   res.json({ message: 'Study Abroad Buddy API is running' });
 });
 
-// Placeholder
-
-app.use('/api/auth', authRoutes); // ADD THIS 1
-app.use('/api/user', userRoutes); // ADD THIS 2
-app.use('/api/chat', chatRoutes); // ADD THIS 3
-app.use('/api/guide', guideRoutes); // ADD THIS 4
+app.use('/api/auth', authRoutes);
+app.use('/api/user', userRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/guide', guideRoutes);
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+// Use server.listen() instead of app.listen() — Socket.io requires this.
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

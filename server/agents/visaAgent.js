@@ -1,3 +1,5 @@
+// server/agents/visaAgent.js
+
 const openaiClient = require('../config/openaiClient');
 const { ragQuery } = require('../utils/ragQuery');
 
@@ -30,6 +32,47 @@ ${context}`;
     return response.choices[0].message.content;
   } catch (error) {
     throw new Error(`Visa agent failed: ${error.message}`);
+  }
+};
+
+// Streaming chat function — same RAG retrieval and system prompt as run(),
+// but yields tokens one by one as an async generator.
+// chatSocket.js iterates this with for-await-of and emits each token immediately.
+const stream = async function* ({ userMessage, homeCountry, destinationCountry }) {
+  try {
+    const searchQuery = `${userMessage} ${homeCountry} to ${destinationCountry} student visa`;
+    const chunks = await ragQuery('visa_docs', searchQuery, 4);
+    const context = chunks.join('\n\n---\n\n');
+
+    const systemPrompt = `You are a visa guidance assistant for international students.
+The student is travelling from ${homeCountry} to ${destinationCountry} for university study.
+Use the following official visa information to answer their question accurately and clearly.
+If the information needed is not in the provided context, say so honestly — do not invent visa requirements.
+Always recommend the student verify requirements with the official embassy website before applying.
+
+Visa information context:
+${context}`;
+
+    const response = await openaiClient.chat.completions.create({
+      model: 'gpt-4o',
+      temperature: 0.3,
+      stream: true,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+    });
+
+    // Iterate the OpenAI stream and yield each text delta as it arrives.
+    // choices[0].delta.content is undefined on the first and last chunks — skip those.
+    for await (const chunk of response) {
+      const token = chunk.choices[0]?.delta?.content;
+      if (token) {
+        yield token;
+      }
+    }
+  } catch (error) {
+    throw new Error(`Visa agent stream failed: ${error.message}`);
   }
 };
 
@@ -75,4 +118,4 @@ Return nothing except the JSON object. No markdown, no backticks, no explanation
   }
 };
 
-module.exports = { run, getGuideContent };
+module.exports = { run, stream, getGuideContent };

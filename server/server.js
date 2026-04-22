@@ -1,7 +1,7 @@
 // server/server.js
 
 // Load .env variables before anything else
-require('dotenv').config(); // ← must be the very first line
+require('dotenv').config(); // must be the very first line
 
 const express = require('express');
 const http = require('http');
@@ -22,15 +22,22 @@ connectDB();
 const app = express();
 
 // Create the HTTP server manually so Socket.io can share the same port.
-// app.listen() creates its own internal server — we need a reference to it.
 const server = http.createServer(app);
 
 // Initialise Socket.io and attach it to the HTTP server.
-// All socket logic lives in chatSocket.js.
 initChatSocket(server);
 
-// Middleware
-app.use(cors());
+// CORS config -- allows requests from the React frontend.
+// In development CLIENT_URL is not set so all origins are allowed.
+// In production CLIENT_URL is set to the Vercel URL on Render.
+const corsOptions = {
+  origin: process.env.CLIENT_URL || '*',
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Health check route
@@ -45,7 +52,6 @@ app.use('/api/guide', guideRoutes);
 
 const PORT = process.env.PORT || 5000;
 
-// Use server.listen() instead of app.listen() — Socket.io requires this.
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

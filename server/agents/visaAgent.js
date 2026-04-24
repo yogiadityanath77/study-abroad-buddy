@@ -1,74 +1,112 @@
 // server/agents/visaAgent.js
 
+const { ChatOpenAI } = require('@langchain/openai');
+const { ChatPromptTemplate } = require('@langchain/core/prompts');
+const { StringOutputParser } = require('@langchain/core/output_parsers');
+const { RunnableSequence, RunnableLambda } = require('@langchain/core/runnables');
+
 const openaiClient = require('../config/openaiClient');
 const { ragQuery } = require('../utils/ragQuery');
 
-// Chat function — free-form answer for use in the AI chat page.
-// Retrieves top 4 RAG chunks and returns a prose answer string.
-const run = async ({ userMessage, homeCountry, destinationCountry }) => {
-  try {
-    const searchQuery = `${userMessage} ${homeCountry} to ${destinationCountry} student visa`;
-    const chunks = await ragQuery('visa_docs', searchQuery, 4);
-    const context = chunks.join('\n\n---\n\n');
+// ── LangChain chain (built once at module load) ──────────────────────────────
+// The chain is a RunnableSequence (LCEL):
+//   input → { context, userMessage, homeCountry, destinationCountry } → prompt → model → string
+//
+// The context step calls our existing ragQuery() so the Pinecone retrieval
+// stays identical to the Phase 1/2 behaviour (same search-query augmentation,
+// same graceful fallback to [] on Pinecone failure). We are not using
+// @langchain/pinecone -- that package pins an older Pinecone SDK and would
+// conflict with the v7 client we already have.
 
-    const systemPrompt = `You are a visa guidance assistant for international students.
-The student is travelling from ${homeCountry} to ${destinationCountry} for university study.
+// Chat model for free-form answers -- matches Phase 2 Week 1 settings.
+// streaming: true so chain.stream() yields real tokens as they arrive from OpenAI.
+const chatModel = new ChatOpenAI({
+  model: 'gpt-4o',
+  temperature: 0.3,
+  streaming: true,
+});
+
+// System prompt kept EXACTLY the same wording as the Phase 1 visaAgent.
+// LangChain templates use {varName} for substitution, so literal curly braces in
+// the prompt text must be escaped as {{ and }} -- there are none here, good.
+const systemTemplate = `You are a visa guidance assistant for international students.
+The student is travelling from {homeCountry} to {destinationCountry} for university study.
 Use the following official visa information to answer their question accurately and clearly.
-If the information needed is not in the provided context, say so honestly — do not invent visa requirements.
+If the information needed is not in the provided context, say so honestly -- do not invent visa requirements.
 Always recommend the student verify requirements with the official embassy website before applying.
 
 Visa information context:
-${context}`;
+{context}`;
 
-    const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.3,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
+const visaPrompt = ChatPromptTemplate.fromMessages([
+  ['system', systemTemplate],
+  ['user', '{userMessage}'],
+]);
+
+// Retrieves the top 4 visa_docs chunks and joins them into a single context string.
+// Wrapped in RunnableLambda so it can slot into the chain as a regular step.
+// The input is the full chain input object; the output is the joined string.
+const buildContext = new RunnableLambda({
+  func: async ({ userMessage, homeCountry, destinationCountry }) => {
+    const searchQuery = `${userMessage} ${homeCountry} to ${destinationCountry} student visa`;
+    const chunks = await ragQuery('visa_docs', searchQuery, 4);
+    return chunks.join('\n\n---\n\n');
+  },
+});
+
+// The full chain:
+// 1. Spread the input object as-is AND compute context from it in parallel
+// 2. Feed the combined object to the prompt template
+// 3. Pipe the rendered prompt to the chat model
+// 4. Parse the AIMessage output into a plain string
+const visaChain = RunnableSequence.from([
+  {
+    userMessage: (input) => input.userMessage,
+    homeCountry: (input) => input.homeCountry,
+    destinationCountry: (input) => input.destinationCountry,
+    context: buildContext,
+  },
+  visaPrompt,
+  chatModel,
+  new StringOutputParser(),
+]);
+
+// ── Exports ──────────────────────────────────────────────────────────────────
+
+// Chat function -- free-form answer for use in the AI chat page and guide cache.
+// Invokes the chain and returns the full answer as a single string.
+// Same input/output contract as Phase 1 so chatSocket.js, agentRouter.js, and
+// any callers of run() continue to work without any changes.
+const run = async ({ userMessage, homeCountry, destinationCountry }) => {
+  try {
+    const answer = await visaChain.invoke({
+      userMessage,
+      homeCountry,
+      destinationCountry,
     });
-
-    return response.choices[0].message.content;
+    return answer;
   } catch (error) {
     throw new Error(`Visa agent failed: ${error.message}`);
   }
 };
 
-// Streaming chat function — same RAG retrieval and system prompt as run(),
-// but yields tokens one by one as an async generator.
+// Streaming chat function -- yields tokens one by one as an async generator.
 // chatSocket.js iterates this with for-await-of and emits each token immediately.
+// The LCEL chain streams natively because chatModel has streaming: true and
+// StringOutputParser passes chunks through as plain strings.
 const stream = async function* ({ userMessage, homeCountry, destinationCountry }) {
   try {
-    const searchQuery = `${userMessage} ${homeCountry} to ${destinationCountry} student visa`;
-    const chunks = await ragQuery('visa_docs', searchQuery, 4);
-    const context = chunks.join('\n\n---\n\n');
-
-    const systemPrompt = `You are a visa guidance assistant for international students.
-The student is travelling from ${homeCountry} to ${destinationCountry} for university study.
-Use the following official visa information to answer their question accurately and clearly.
-If the information needed is not in the provided context, say so honestly — do not invent visa requirements.
-Always recommend the student verify requirements with the official embassy website before applying.
-
-Visa information context:
-${context}`;
-
-    const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.3,
-      stream: true,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
+    const chainStream = await visaChain.stream({
+      userMessage,
+      homeCountry,
+      destinationCountry,
     });
 
-    // Iterate the OpenAI stream and yield each text delta as it arrives.
-    // choices[0].delta.content is undefined on the first and last chunks — skip those.
-    for await (const chunk of response) {
-      const token = chunk.choices[0]?.delta?.content;
-      if (token) {
-        yield token;
+    // Each chunk is already a string because of StringOutputParser.
+    // Skip empty chunks so chatSocket.js does not emit blank chat:token events.
+    for await (const chunk of chainStream) {
+      if (chunk) {
+        yield chunk;
       }
     }
   } catch (error) {
@@ -76,8 +114,10 @@ ${context}`;
   }
 };
 
-// Guide page function — returns structured JSON for the visa guide page.
-// Returns an object with visaType, requiredDocuments, processingTime, embassyLink, notes.
+// Guide page function -- UNCHANGED from Phase 1/2.
+// Returns structured JSON for the visa guide page. Intentionally stays on the
+// raw OpenAI SDK because this is a structured-JSON call, not streaming chat,
+// and the guide cache in MongoDB makes this a cold path. No value in refactoring.
 const getGuideContent = async ({ homeCountry, destinationCountry }) => {
   try {
     const searchQuery = `${homeCountry} to ${destinationCountry} student visa requirements documents`;

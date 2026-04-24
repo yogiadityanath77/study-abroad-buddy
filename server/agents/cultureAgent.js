@@ -1,70 +1,71 @@
 // server/agents/cultureAgent.js
 
+const { ChatOpenAI } = require('@langchain/openai');
+const { ChatPromptTemplate } = require('@langchain/core/prompts');
+const { StringOutputParser } = require('@langchain/core/output_parsers');
+const { RunnableSequence, RunnableLambda } = require('@langchain/core/runnables');
+
 const openaiClient = require('../config/openaiClient');
 const { ragQuery } = require('../utils/ragQuery');
 
-// Chat function — free-form answer for use in the AI chat page.
-const run = async ({ userMessage, destinationCountry }) => {
-  try {
-    const searchQuery = `${userMessage} ${destinationCountry} culture customs student`;
-    const chunks = await ragQuery('culture_docs', searchQuery, 4);
-    const context = chunks.join('\n\n---\n\n');
+// ── LangChain chain (built once at module load) ──────────────────────────────
 
-    const systemPrompt = `You are a culture guide assistant for international students moving to ${destinationCountry}.
+const chatModel = new ChatOpenAI({
+  model: 'gpt-4o',
+  temperature: 0.5,
+  streaming: true,
+});
+
+const systemTemplate = `You are a culture guide assistant for international students moving to {destinationCountry}.
 Use the following cultural information to answer the student's question helpfully and practically.
-Be specific to ${destinationCountry} where possible. If the information is not in the provided context,
+Be specific to {destinationCountry} where possible. If the information is not in the provided context,
 draw on general knowledge but make clear it is general guidance rather than destination-specific.
 Aim to help the student feel confident and prepared for daily life in their new country.
 
 Culture information context:
-${context}`;
+{context}`;
 
-    const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.5,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
-    });
+const culturePrompt = ChatPromptTemplate.fromMessages([
+  ['system', systemTemplate],
+  ['user', '{userMessage}'],
+]);
 
-    return response.choices[0].message.content;
+const buildContext = new RunnableLambda({
+  func: async ({ userMessage, destinationCountry }) => {
+    const searchQuery = `${userMessage} ${destinationCountry} culture customs student`;
+    const chunks = await ragQuery('culture_docs', searchQuery, 4);
+    return chunks.join('\n\n---\n\n');
+  },
+});
+
+const cultureChain = RunnableSequence.from([
+  {
+    userMessage: (input) => input.userMessage,
+    destinationCountry: (input) => input.destinationCountry,
+    context: buildContext,
+  },
+  culturePrompt,
+  chatModel,
+  new StringOutputParser(),
+]);
+
+// ── Exports ──────────────────────────────────────────────────────────────────
+
+const run = async ({ userMessage, destinationCountry }) => {
+  try {
+    const answer = await cultureChain.invoke({ userMessage, destinationCountry });
+    return answer;
   } catch (error) {
     throw new Error(`Culture agent failed: ${error.message}`);
   }
 };
 
-// Streaming chat function — same RAG retrieval and system prompt as run(),
-// yields tokens one by one as an async generator.
 const stream = async function* ({ userMessage, destinationCountry }) {
   try {
-    const searchQuery = `${userMessage} ${destinationCountry} culture customs student`;
-    const chunks = await ragQuery('culture_docs', searchQuery, 4);
-    const context = chunks.join('\n\n---\n\n');
-
-    const systemPrompt = `You are a culture guide assistant for international students moving to ${destinationCountry}.
-Use the following cultural information to answer the student's question helpfully and practically.
-Be specific to ${destinationCountry} where possible. If the information is not in the provided context,
-draw on general knowledge but make clear it is general guidance rather than destination-specific.
-Aim to help the student feel confident and prepared for daily life in their new country.
-
-Culture information context:
-${context}`;
-
-    const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.5,
-      stream: true,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
-    });
-
-    for await (const chunk of response) {
-      const token = chunk.choices[0]?.delta?.content;
-      if (token) {
-        yield token;
+    const chainStream = await cultureChain.stream({ userMessage, destinationCountry });
+    for await (const chunk of chainStream) {
+      if (chunk) {
+        yield chunk;
       }
     }
   } catch (error) {
@@ -72,8 +73,7 @@ ${context}`;
   }
 };
 
-// Guide page function — returns structured JSON for the culture guide page.
-// Returns an object with socialNorms, tipping, transport, food, simCards, notes.
+// Guide page function — UNCHANGED from Phase 1/2.
 const getGuideContent = async ({ destinationCountry }) => {
   try {
     const searchQuery = `${destinationCountry} culture social norms tipping transport food SIM cards student`;

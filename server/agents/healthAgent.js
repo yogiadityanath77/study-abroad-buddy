@@ -1,103 +1,116 @@
 // server/agents/healthAgent.js
 
+const { ChatOpenAI } = require('@langchain/openai');
+const { ChatPromptTemplate } = require('@langchain/core/prompts');
+const { StringOutputParser } = require('@langchain/core/output_parsers');
+const { RunnableSequence, RunnableLambda } = require('@langchain/core/runnables');
+
 const openaiClient = require('../config/openaiClient');
 const { ragQuery } = require('../utils/ragQuery');
 
-// Chat function — free-form answer for use in the AI chat page.
-// Always appends the doctor disclaimer to every response.
-const run = async ({ userMessage, destinationCountry, travelStartDate }) => {
-  try {
-    const formattedDate = travelStartDate
-      ? new Date(travelStartDate).toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        })
-      : 'an upcoming date';
+// Fixed disclaimer appended to every chat response — matches Phase 1 behaviour.
+const DOCTOR_DISCLAIMER = '\n\nConsult a doctor before travelling.';
 
-    const searchQuery = `${userMessage} ${destinationCountry} student travel health`;
-    const chunks = await ragQuery('health_docs', searchQuery, 4);
-    const context = chunks.join('\n\n---\n\n');
+// ── LangChain chain (built once at module load) ──────────────────────────────
+// Same pattern as visaAgent: input → { context, formattedDate, userMessage, destinationCountry }
+// → prompt → model → string. The disclaimer is NOT appended inside the chain —
+// run() appends it after the chain returns, stream() yields it as a final chunk.
 
-    const systemPrompt = `You are a travel health assistant for international students.
-The student is travelling to ${destinationCountry} starting ${formattedDate}.
+const chatModel = new ChatOpenAI({
+  model: 'gpt-4o',
+  temperature: 0.3,
+  streaming: true,
+});
+
+// System prompt kept EXACTLY the same wording as Phase 1.
+const systemTemplate = `You are a travel health assistant for international students.
+The student is travelling to {destinationCountry} starting {formattedDate}.
 Use the following travel health information to answer their question clearly and helpfully.
 If the specific information is not in the provided context, give sensible general guidance and say it is general advice.
 Focus on practical steps the student can take before and after arrival.
 
 Health information context:
-${context}`;
+{context}`;
 
-    const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.3,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
+const healthPrompt = ChatPromptTemplate.fromMessages([
+  ['system', systemTemplate],
+  ['user', '{userMessage}'],
+]);
+
+// Retrieves top 4 health_docs chunks and joins them.
+const buildContext = new RunnableLambda({
+  func: async ({ userMessage, destinationCountry }) => {
+    const searchQuery = `${userMessage} ${destinationCountry} student travel health`;
+    const chunks = await ragQuery('health_docs', searchQuery, 4);
+    return chunks.join('\n\n---\n\n');
+  },
+});
+
+// Formats travelStartDate as a readable string, matching Phase 1 formatting.
+const formatDate = (travelStartDate) => {
+  if (!travelStartDate) return 'an upcoming date';
+  return new Date(travelStartDate).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+};
+
+const healthChain = RunnableSequence.from([
+  {
+    userMessage: (input) => input.userMessage,
+    destinationCountry: (input) => input.destinationCountry,
+    formattedDate: (input) => formatDate(input.travelStartDate),
+    context: buildContext,
+  },
+  healthPrompt,
+  chatModel,
+  new StringOutputParser(),
+]);
+
+// ── Exports ──────────────────────────────────────────────────────────────────
+
+// Chat function — invokes the chain and appends the doctor disclaimer.
+// Same input/output contract as Phase 1.
+const run = async ({ userMessage, destinationCountry, travelStartDate }) => {
+  try {
+    const answer = await healthChain.invoke({
+      userMessage,
+      destinationCountry,
+      travelStartDate,
     });
-
-    const answer = response.choices[0].message.content;
-    return `${answer}\n\nConsult a doctor before travelling.`;
+    return `${answer}${DOCTOR_DISCLAIMER}`;
   } catch (error) {
     throw new Error(`Health agent failed: ${error.message}`);
   }
 };
 
-// Streaming chat function — same RAG retrieval and system prompt as run().
-// Yields tokens one by one, then yields the doctor disclaimer as a final token
-// after the OpenAI stream closes. This matches the behaviour of run() exactly.
+// Streaming chat function — yields tokens from the chain, then yields the
+// disclaimer as a final chunk. chatSocket.js accumulates every yield into
+// fullAnswer so the cached value includes the disclaimer too.
 const stream = async function* ({ userMessage, destinationCountry, travelStartDate }) {
   try {
-    const formattedDate = travelStartDate
-      ? new Date(travelStartDate).toLocaleDateString('en-GB', {
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        })
-      : 'an upcoming date';
-
-    const searchQuery = `${userMessage} ${destinationCountry} student travel health`;
-    const chunks = await ragQuery('health_docs', searchQuery, 4);
-    const context = chunks.join('\n\n---\n\n');
-
-    const systemPrompt = `You are a travel health assistant for international students.
-The student is travelling to ${destinationCountry} starting ${formattedDate}.
-Use the following travel health information to answer their question clearly and helpfully.
-If the specific information is not in the provided context, give sensible general guidance and say it is general advice.
-Focus on practical steps the student can take before and after arrival.
-
-Health information context:
-${context}`;
-
-    const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.3,
-      stream: true,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
+    const chainStream = await healthChain.stream({
+      userMessage,
+      destinationCountry,
+      travelStartDate,
     });
 
-    for await (const chunk of response) {
-      const token = chunk.choices[0]?.delta?.content;
-      if (token) {
-        yield token;
+    for await (const chunk of chainStream) {
+      if (chunk) {
+        yield chunk;
       }
     }
 
-    // Emit the disclaimer as a final token after the stream ends.
-    // run() appends it as a string suffix — stream() yields it the same way
-    // so the accumulated fullAnswer in chatSocket.js includes it automatically.
-    yield '\n\nConsult a doctor before travelling.';
+    // Final chunk — matches Phase 1 stream() behaviour.
+    yield DOCTOR_DISCLAIMER;
   } catch (error) {
     throw new Error(`Health agent stream failed: ${error.message}`);
   }
 };
 
-// Guide page function — returns structured JSON for the health guide page.
-// Returns an object with vaccines, foodWaterSafety, insuranceTips, emergencyContacts, notes.
+// Guide page function — UNCHANGED from Phase 1/2.
+// Kept on raw OpenAI SDK because structured JSON output doesn't benefit from LangChain.
 const getGuideContent = async ({ destinationCountry, travelStartDate }) => {
   try {
     const searchQuery = `${destinationCountry} student travel health vaccines insurance emergency`;

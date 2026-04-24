@@ -24,14 +24,14 @@ server/.env.local
 chroma-data/
 
 # ========================
-# Project planning / notes files (root level)
+# All .txt and .md files (except README.md)
 # ========================
-agents-and-pages.txt
-week-plan.txt
-CLAUDE.md
-progress.md
-phase2-progress.md
-phase2-plan.txt
+*.txt
+*.md
+!README.md
+
+# Personal prep and phase notes folders
+prep-files-phase2/
 
 # ========================
 # Build output
@@ -63,6 +63,6 @@ yarn-error.log*
 .vscode/
 .idea/
 
-# Personal prep and progress notes
+# Personal prep and progress notes folders
 prep-files-phase1/
 studyabroad_progressfiles/

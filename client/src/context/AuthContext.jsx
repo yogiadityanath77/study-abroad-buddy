@@ -1,6 +1,6 @@
 // client/src/context/AuthContext.jsx
 
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import socket from '../api/socket';
 
 const AuthContext = createContext(null);
@@ -12,6 +12,25 @@ export const AuthProvider = ({ children }) => {
     const stored = localStorage.getItem('user');
     return stored ? JSON.parse(stored) : null;
   });
+
+  // On mount: if the user is already logged in (token in localStorage from a
+  // previous session) connect the socket with the current token. Without this,
+  // a page refresh would leave the socket disconnected — login() only fires
+  // on a fresh login, not on refresh. Cleans up the connection on unmount.
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token && !socket.connected) {
+      socket.auth = { token };
+      socket.connect();
+    }
+
+    return () => {
+      // Optional: leave the socket alone on unmount of AuthProvider
+      // (AuthProvider unmounts only on full app teardown, which usually means
+      // the tab is closing anyway). If you want to be explicit, uncomment:
+      // socket.disconnect();
+    };
+  }, []);
 
   // Saves token + user to state and localStorage after login or register.
   // Updates the socket auth token then connects — the server JWT middleware

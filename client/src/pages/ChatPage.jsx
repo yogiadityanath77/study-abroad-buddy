@@ -89,13 +89,14 @@ const ChatPage = () => {
       });
     };
 
-    // chat:done — the stream has finished and both messages are saved in MongoDB.
+     // chat:done — the stream has finished and both messages are saved in MongoDB.
     // Replace the temporary streaming bubble with the real saved bot document
     // so it has a real _id, correct intent, and accurate createdAt timestamp.
-    const handleDone = ({ intent, savedBotMessage }) => {
+    // fromCache is attached to the message so MessageBubble can render a small badge.
+    const handleDone = ({ intent, savedBotMessage, fromCache }) => {
       setMessages((prev) => [
         ...prev.filter((m) => m._id !== STREAMING_ID),
-        { ...savedBotMessage, intent },
+        { ...savedBotMessage, intent, fromCache: Boolean(fromCache) },
       ]);
       setSending(false);
       inputRef.current?.focus();
@@ -311,11 +312,19 @@ const MessageBubble = ({ msg }) => {
             )}
           </div>
         </div>
-        {/* Agent badge + timestamp — badge shows placeholder colour while streaming */}
+        {/* Agent badge + cache pill + timestamp — badge shows placeholder colour while streaming */}
         <div className="flex items-center gap-2 mt-1.5 ml-11">
           <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${badge.color}`}>
             {badge.label}
           </span>
+          {msg.fromCache && (
+            <span
+              title="Served from cache — answered instantly without calling the AI"
+              className="text-xs px-2 py-0.5 rounded-full border font-medium bg-violet-400/10 text-violet-300 border-violet-400/20"
+            >
+              cached
+            </span>
+          )}
           {!msg.streaming && (
             <span className="text-slate-700 text-xs">{time}</span>
           )}

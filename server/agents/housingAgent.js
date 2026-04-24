@@ -1,75 +1,85 @@
 // server/agents/housingAgent.js
 
+const { ChatOpenAI } = require('@langchain/openai');
+const { ChatPromptTemplate } = require('@langchain/core/prompts');
+const { StringOutputParser } = require('@langchain/core/output_parsers');
+const { RunnableSequence } = require('@langchain/core/runnables');
+
 const openaiClient = require('../config/openaiClient');
 
-// Chat function — free-form answer for use in the AI chat page.
-const run = async ({ userMessage, destinationCity, destinationCountry, travelStartDate, travelEndDate }) => {
-  try {
-    let durationText = 'an extended period';
-    if (travelStartDate && travelEndDate) {
-      const start = new Date(travelStartDate);
-      const end = new Date(travelEndDate);
-      const months = Math.round((end - start) / (1000 * 60 * 60 * 24 * 30));
-      durationText = `approximately ${months} month${months !== 1 ? 's' : ''}`;
-    }
+// ── LangChain chain (built once at module load) ──────────────────────────────
+// LLM-only — no RAG step. The only transform is computing durationText from dates.
 
-    const systemPrompt = `You are a student housing advisor for international students.
-The student is moving to ${destinationCity}, ${destinationCountry} for ${durationText} to study at university.
-Answer their housing question with practical, specific advice for ${destinationCity}.
+const chatModel = new ChatOpenAI({
+  model: 'gpt-4o',
+  temperature: 0.5,
+  streaming: true,
+});
+
+const systemTemplate = `You are a student housing advisor for international students.
+The student is moving to {destinationCity}, {destinationCountry} for {durationText} to study at university.
+Answer their housing question with practical, specific advice for {destinationCity}.
 Cover relevant topics such as: types of student accommodation available, typical rent ranges for the area,
 the best platforms and websites to search for housing, lease terms and tenant rights,
 what to watch out for in rental contracts, and tips for finding housing as an international student.
 Be honest about costs and timelines. If you are unsure of very specific current prices, give a realistic range and say it may vary.`;
 
-    const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.5,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
-    });
+const housingPrompt = ChatPromptTemplate.fromMessages([
+  ['system', systemTemplate],
+  ['user', '{userMessage}'],
+]);
 
-    return response.choices[0].message.content;
+// Computes trip duration in months from start and end dates — same logic as Phase 1.
+const computeDuration = (travelStartDate, travelEndDate) => {
+  if (!travelStartDate || !travelEndDate) return 'an extended period';
+  const start = new Date(travelStartDate);
+  const end = new Date(travelEndDate);
+  const months = Math.round((end - start) / (1000 * 60 * 60 * 24 * 30));
+  return `approximately ${months} month${months !== 1 ? 's' : ''}`;
+};
+
+const housingChain = RunnableSequence.from([
+  {
+    userMessage: (input) => input.userMessage,
+    destinationCity: (input) => input.destinationCity,
+    destinationCountry: (input) => input.destinationCountry,
+    durationText: (input) => computeDuration(input.travelStartDate, input.travelEndDate),
+  },
+  housingPrompt,
+  chatModel,
+  new StringOutputParser(),
+]);
+
+// ── Exports ──────────────────────────────────────────────────────────────────
+
+const run = async ({ userMessage, destinationCity, destinationCountry, travelStartDate, travelEndDate }) => {
+  try {
+    const answer = await housingChain.invoke({
+      userMessage,
+      destinationCity,
+      destinationCountry,
+      travelStartDate,
+      travelEndDate,
+    });
+    return answer;
   } catch (error) {
     throw new Error(`Housing agent failed: ${error.message}`);
   }
 };
 
-// Streaming chat function — same durationText calculation and system prompt as run(),
-// yields tokens one by one as an async generator.
 const stream = async function* ({ userMessage, destinationCity, destinationCountry, travelStartDate, travelEndDate }) {
   try {
-    let durationText = 'an extended period';
-    if (travelStartDate && travelEndDate) {
-      const start = new Date(travelStartDate);
-      const end = new Date(travelEndDate);
-      const months = Math.round((end - start) / (1000 * 60 * 60 * 24 * 30));
-      durationText = `approximately ${months} month${months !== 1 ? 's' : ''}`;
-    }
-
-    const systemPrompt = `You are a student housing advisor for international students.
-The student is moving to ${destinationCity}, ${destinationCountry} for ${durationText} to study at university.
-Answer their housing question with practical, specific advice for ${destinationCity}.
-Cover relevant topics such as: types of student accommodation available, typical rent ranges for the area,
-the best platforms and websites to search for housing, lease terms and tenant rights,
-what to watch out for in rental contracts, and tips for finding housing as an international student.
-Be honest about costs and timelines. If you are unsure of very specific current prices, give a realistic range and say it may vary.`;
-
-    const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.5,
-      stream: true,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
+    const chainStream = await housingChain.stream({
+      userMessage,
+      destinationCity,
+      destinationCountry,
+      travelStartDate,
+      travelEndDate,
     });
 
-    for await (const chunk of response) {
-      const token = chunk.choices[0]?.delta?.content;
-      if (token) {
-        yield token;
+    for await (const chunk of chainStream) {
+      if (chunk) {
+        yield chunk;
       }
     }
   } catch (error) {
@@ -77,8 +87,7 @@ Be honest about costs and timelines. If you are unsure of very specific current 
   }
 };
 
-// Guide page function — returns structured JSON for the housing guide page.
-// Returns an object with accommodationTypes, rentRanges, searchPlatforms, leaseTips, notes.
+// Guide page function — UNCHANGED from Phase 1/2.
 const getGuideContent = async ({ destinationCity, destinationCountry, travelStartDate, travelEndDate }) => {
   try {
     let durationText = 'an extended period';

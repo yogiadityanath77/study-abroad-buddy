@@ -1,81 +1,83 @@
 // server/agents/generalAgent.js
 
-const openaiClient = require('../config/openaiClient');
+const { ChatOpenAI } = require('@langchain/openai');
+const { ChatPromptTemplate, MessagesPlaceholder } = require('@langchain/core/prompts');
+const { StringOutputParser } = require('@langchain/core/output_parsers');
+const { RunnableSequence } = require('@langchain/core/runnables');
+const { HumanMessage, AIMessage } = require('@langchain/core/messages');
 
-// General agent — LLM only, no ChromaDB.
-// Handles anything that is not visa, health, culture, or housing:
-// packing, budgets, language tips, logistics, homesickness, emotions, general questions.
-// Receives the last 5 chat messages as conversation context so it can give coherent follow-up replies.
-// Returns a plain text answer string.
-const run = async ({ userMessage, recentMessages, destinationCountry, destinationCity }) => {
-  try {
-    const systemPrompt = `You are a friendly and practical study abroad assistant helping a student who is moving to ${destinationCity}, ${destinationCountry} for university.
+// ── LangChain chain (built once at module load) ──────────────────────────────
+// LLM-only, no RAG. Uses MessagesPlaceholder to inject the last 5 chat messages
+// as structured message objects (HumanMessage/AIMessage) instead of stringifying them.
+// This is the canonical LangChain way to handle chat history — the model sees
+// the history as real prior turns rather than as text embedded in the system prompt.
+
+const chatModel = new ChatOpenAI({
+  model: 'gpt-4o',
+  temperature: 0.7,
+  streaming: true,
+});
+
+const systemTemplate = `You are a friendly and practical study abroad assistant helping a student who is moving to {destinationCity}, {destinationCountry} for university.
 You handle general questions about studying abroad that are not specifically about visas, health, culture, or housing.
 This includes: packing lists, budgeting and money management, language learning tips, booking flights, logistics of moving abroad, dealing with homesickness, adjusting to student life, and any other practical concerns.
 Be warm, encouraging, and specific. The student may be anxious about their move — be supportive as well as practical.`;
 
-    // Build the messages array: system prompt + last 5 messages as history + current message
-    // This gives the agent conversation context so it can handle follow-up questions naturally
-    const messages = [{ role: 'system', content: systemPrompt }];
+const generalPrompt = ChatPromptTemplate.fromMessages([
+  ['system', systemTemplate],
+  new MessagesPlaceholder('history'),
+  ['user', '{userMessage}'],
+]);
 
-    if (recentMessages && recentMessages.length > 0) {
-      for (const msg of recentMessages) {
-        // ChatHistory uses role: 'bot' but OpenAI expects role: 'assistant'
-        messages.push({
-          role: msg.role === 'bot' ? 'assistant' : 'user',
-          content: msg.message,
-        });
-      }
-    }
+// Converts the Mongoose ChatHistory documents to LangChain message objects.
+// ChatHistory uses role: 'user' | 'bot'; LangChain uses HumanMessage | AIMessage.
+const toHistoryMessages = (recentMessages) => {
+  if (!recentMessages || recentMessages.length === 0) return [];
+  return recentMessages.map((msg) =>
+    msg.role === 'bot' ? new AIMessage(msg.message) : new HumanMessage(msg.message)
+  );
+};
 
-    // Add the current user message last
-    messages.push({ role: 'user', content: userMessage });
+const generalChain = RunnableSequence.from([
+  {
+    userMessage: (input) => input.userMessage,
+    destinationCity: (input) => input.destinationCity,
+    destinationCountry: (input) => input.destinationCountry,
+    history: (input) => toHistoryMessages(input.recentMessages),
+  },
+  generalPrompt,
+  chatModel,
+  new StringOutputParser(),
+]);
 
-    const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.7,
-      messages,
+// ── Exports ──────────────────────────────────────────────────────────────────
+
+const run = async ({ userMessage, recentMessages, destinationCountry, destinationCity }) => {
+  try {
+    const answer = await generalChain.invoke({
+      userMessage,
+      recentMessages,
+      destinationCountry,
+      destinationCity,
     });
-
-    return response.choices[0].message.content;
+    return answer;
   } catch (error) {
     throw new Error(`General agent failed: ${error.message}`);
   }
 };
 
-// Streaming chat function — identical messages array construction as run(),
-// yields tokens one by one as an async generator.
 const stream = async function* ({ userMessage, recentMessages, destinationCountry, destinationCity }) {
   try {
-    const systemPrompt = `You are a friendly and practical study abroad assistant helping a student who is moving to ${destinationCity}, ${destinationCountry} for university.
-You handle general questions about studying abroad that are not specifically about visas, health, culture, or housing.
-This includes: packing lists, budgeting and money management, language learning tips, booking flights, logistics of moving abroad, dealing with homesickness, adjusting to student life, and any other practical concerns.
-Be warm, encouraging, and specific. The student may be anxious about their move — be supportive as well as practical.`;
-
-    const messages = [{ role: 'system', content: systemPrompt }];
-
-    if (recentMessages && recentMessages.length > 0) {
-      for (const msg of recentMessages) {
-        messages.push({
-          role: msg.role === 'bot' ? 'assistant' : 'user',
-          content: msg.message,
-        });
-      }
-    }
-
-    messages.push({ role: 'user', content: userMessage });
-
-    const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o',
-      temperature: 0.7,
-      stream: true,
-      messages,
+    const chainStream = await generalChain.stream({
+      userMessage,
+      recentMessages,
+      destinationCountry,
+      destinationCity,
     });
 
-    for await (const chunk of response) {
-      const token = chunk.choices[0]?.delta?.content;
-      if (token) {
-        yield token;
+    for await (const chunk of chainStream) {
+      if (chunk) {
+        yield chunk;
       }
     }
   } catch (error) {

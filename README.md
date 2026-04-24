@@ -98,7 +98,7 @@ study-abroad-buddy/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/study-abroad-buddy.git
+git clone https://github.com/yogiadityanath77/study-abroad-buddy.git
 cd study-abroad-buddy
 ```
 

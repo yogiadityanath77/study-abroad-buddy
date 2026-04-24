@@ -14,7 +14,7 @@ A demo account is pre-configured so you can explore the full app without registe
 | Email | `demo@studyabroad.app` |
 | Password | `Demo1234` |
 
-The demo account is set up for a student travelling from **India to London, UK** (University College London, Sep 2025 – Jun 2026). All guide pages are pre-cached so they load instantly. The AI chat is fully live.
+The demo account is set up for a student travelling from **India to London, UK** (University College London, Sep 2026 – Jun 2028). All guide pages are pre-cached so they load instantly. The AI chat is fully live.
 
 > The backend runs on Render's free tier and may take **30–60 seconds** to wake up after a period of inactivity. If the first request is slow, wait a moment and try again.
 

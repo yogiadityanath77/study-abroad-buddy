@@ -10,6 +10,7 @@ A demo account is pre-configured so you can explore the full app without registe
 
 | Field | Value |
 |---|---|
+| Name | `Demo` |
 | Email | `demo@studyabroad.app` |
 | Password | `Demo1234` |
 

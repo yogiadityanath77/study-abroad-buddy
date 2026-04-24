@@ -5,6 +5,8 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getGuide } from '../api/guide';
 import { getProfile, updateTickedItems } from '../api/user';
+import LoadingSpinner from '../components/LoadingSpinner';
+import ProgressBar from '../components/ProgressBar';
 
 const HealthPage = () => {
   const [guide, setGuide] = useState(null);
@@ -59,7 +61,7 @@ const HealthPage = () => {
   const totalVaccines = guide?.content?.vaccines?.length ?? 0;
   const allChecked = totalVaccines > 0 && checkedCount === totalVaccines;
 
-  if (loading) return <LoadingScreen />;
+  if (loading) return <LoadingSpinner message="Loading your health guide…" />;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -135,10 +137,10 @@ const HealthPage = () => {
               </div>
 
               {/* Progress bar */}
-              <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-5">
-                <div
-                  className="h-full bg-sky-400 rounded-full transition-all duration-500"
-                  style={{ width: totalVaccines > 0 ? `${(checkedCount / totalVaccines) * 100}%` : '0%' }}
+              <div className="mb-5">
+                <ProgressBar
+                  percent={totalVaccines > 0 ? (checkedCount / totalVaccines) * 100 : 0}
+                  colour="bg-sky-400"
                 />
               </div>
 
@@ -267,14 +269,5 @@ const HealthPage = () => {
     </div>
   );
 };
-
-const LoadingScreen = () => (
-  <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-    <div className="text-center">
-      <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-      <p className="text-slate-500 text-sm">Loading your health guide…</p>
-    </div>
-  </div>
-);
 
 export default HealthPage;

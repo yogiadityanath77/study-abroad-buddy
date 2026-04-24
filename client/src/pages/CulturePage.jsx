@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getGuide } from '../api/guide';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 // ── Accordion item — open/close a single section ──
 const AccordionItem = ({ emoji, title, children, defaultOpen = false }) => {
@@ -60,7 +61,7 @@ const CulturePage = () => {
     fetchGuide();
   }, []);
 
-  if (loading) return <LoadingScreen />;
+  if (loading) return <LoadingSpinner message="Loading your culture guide…" />;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -174,15 +175,5 @@ const CulturePage = () => {
     </div>
   );
 };
-
-// Full-screen loading state
-const LoadingScreen = () => (
-  <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-    <div className="text-center">
-      <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-      <p className="text-slate-500 text-sm">Loading your culture guide…</p>
-    </div>
-  </div>
-);
 
 export default CulturePage;

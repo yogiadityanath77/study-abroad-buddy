@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getProfile, getChecklist, updateChecklist } from '../api/user';
 import { useAuth } from '../context/AuthContext';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 // ── Formats a JS Date or ISO string to "12 Jan 2025" ──
 const formatDate = (dateStr) => {
@@ -98,7 +99,7 @@ const DashboardPage = () => {
     : 0;
   const countdown = daysUntil(profile?.travelStartDate);
 
-  if (loading) return <LoadingScreen />;
+  if (loading) return <LoadingSpinner message="Loading your dashboard…" />;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -351,16 +352,6 @@ const ModuleCard = ({ to, emoji, title, description, accent }) => (
       View guide →
     </span>
   </Link>
-);
-
-// Full-screen loading state while profile fetches
-const LoadingScreen = () => (
-  <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-    <div className="text-center">
-      <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-      <p className="text-slate-500 text-sm">Loading your dashboard…</p>
-    </div>
-  </div>
 );
 
 export default DashboardPage;

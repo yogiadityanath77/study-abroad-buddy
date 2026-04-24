@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getGuide } from '../api/guide';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 // Extracts a readable hostname from a full URL for display
 const getHostname = (url) => {
@@ -34,7 +35,7 @@ const HousingPage = () => {
     fetchGuide();
   }, []);
 
-  if (loading) return <LoadingScreen />;
+  if (loading) return <LoadingSpinner message="Loading your housing guide…" />;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -189,7 +190,6 @@ const AccommodationRow = ({ index, type }) => (
   </div>
 );
 
-// Single platform link row — extracted to avoid <a> inside map() parse issues
 // Single platform link row
 const PlatformLink = ({ url }) => {
   const hostname = getHostname(url);
@@ -216,15 +216,5 @@ const PlatformLink = ({ url }) => {
     </a>
   );
 };
-
-// Full-screen loading state
-const LoadingScreen = () => (
-  <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-    <div className="text-center">
-      <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-      <p className="text-slate-500 text-sm">Loading your housing guide…</p>
-    </div>
-  </div>
-);
 
 export default HousingPage;

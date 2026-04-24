@@ -5,6 +5,8 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getGuide } from '../api/guide';
 import { getProfile, updateTickedItems } from '../api/user';
+import LoadingSpinner from '../components/LoadingSpinner';
+import ProgressBar from '../components/ProgressBar';
 
 const VisaPage = () => {
   const [guide, setGuide] = useState(null);
@@ -59,7 +61,7 @@ const VisaPage = () => {
   const totalDocs = guide?.content?.requiredDocuments?.length ?? 0;
   const allChecked = totalDocs > 0 && checkedCount === totalDocs;
 
-  if (loading) return <LoadingScreen />;
+  if (loading) return <LoadingSpinner message="Loading your visa guide…" />;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -152,10 +154,10 @@ const VisaPage = () => {
               </div>
 
               {/* Progress bar */}
-              <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-5">
-                <div
-                  className="h-full bg-amber-400 rounded-full transition-all duration-500"
-                  style={{ width: totalDocs > 0 ? `${(checkedCount / totalDocs) * 100}%` : '0%' }}
+              <div className="mb-5">
+                <ProgressBar
+                  percent={totalDocs > 0 ? (checkedCount / totalDocs) * 100 : 0}
+                  colour="bg-amber-400"
                 />
               </div>
 
@@ -256,15 +258,6 @@ const InfoCard = ({ emoji, label, value, accent }) => (
       {label}
     </p>
     <p className="text-white font-bold text-lg leading-snug">{value}</p>
-  </div>
-);
-
-const LoadingScreen = () => (
-  <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-    <div className="text-center">
-      <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-      <p className="text-slate-500 text-sm">Loading your visa guide…</p>
-    </div>
   </div>
 );
 

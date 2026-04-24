@@ -6,6 +6,8 @@ import { Link } from 'react-router-dom';
 import { getProfile, updateProfile } from '../api/user';
 import { useAuth } from '../context/AuthContext';
 import axiosInstance from '../api/axiosInstance';
+import LoadingSpinner from '../components/LoadingSpinner';
+import Toast from '../components/Toast';
 
 // ── Destination countries — only the 8 covered by our RAG data ──
 const DESTINATION_COUNTRIES = [
@@ -211,7 +213,7 @@ const ProfilePage = () => {
 
   const cities = CITIES_BY_COUNTRY[profile.destinationCountry] || [];
 
-  if (profileLoading) return <LoadingScreen />;
+  if (profileLoading) return <LoadingSpinner message="Loading your profile…" />;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -539,25 +541,6 @@ const PasswordField = ({ id, label, name, value, onChange, placeholder, error, h
     />
     {error && <p className="mt-1.5 text-red-400 text-xs">{error}</p>}
     {hint && !error && <p className="mt-1.5 text-slate-600 text-xs">{hint}</p>}
-  </div>
-);
-
-const Toast = ({ text, type }) => (
-  <span className={`text-xs font-medium px-3 py-1.5 rounded-full border ${
-    type === 'success'
-      ? 'bg-emerald-400/10 border-emerald-400/20 text-emerald-400'
-      : 'bg-red-400/10 border-red-400/20 text-red-400'
-  }`}>
-    {type === 'success' ? '✓' : '✕'} {text}
-  </span>
-);
-
-const LoadingScreen = () => (
-  <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-    <div className="text-center">
-      <div className="w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-      <p className="text-slate-500 text-sm">Loading your profile…</p>
-    </div>
   </div>
 );
 

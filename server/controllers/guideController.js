@@ -107,4 +107,4 @@ const getGuide = async (req, res) => {
   }
 };
 
-module.exports = { getGuide };
+module.exports = { getGuide, isCacheValid };
